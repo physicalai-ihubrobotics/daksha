@@ -1,0 +1,1339 @@
+#!/usr/bin/env python3
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy, QoSHistoryPolicy
+from std_msgs.msg import String
+from rcl_interfaces.srv import GetParameters, SetParameters
+from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
+from flask import Flask, jsonify, render_template_string, request
+import subprocess
+import signal
+import os
+import re
+import ipaddress
+import socket
+import threading
+import time
+import logging
+import yaml
+import sys as _sys
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
+from gen2_leader.main_with_service_mirror_wifi import (
+    DEFAULT_RIGHT_DIRECTION as MIRROR_DEFAULT_RIGHT,
+    DEFAULT_LEFT_DIRECTION as MIRROR_DEFAULT_LEFT,
+)
+
+# daksha_web_access.py is installed by the automation package into its lib dir.
+from ament_index_python.packages import get_package_prefix
+_AUTOMATION_DIR = os.path.join(get_package_prefix("automation"), "lib", "automation")
+if _AUTOMATION_DIR not in _sys.path:
+    _sys.path.insert(0, _AUTOMATION_DIR)
+from daksha_web_access import setup_flask_gate
+from werkzeug.serving import WSGIRequestHandler
+
+# Bare labels ("leader1") or dotted hostnames ("leader1.local"); no
+# spaces/slashes/shell metacharacters, and must start with a letter or
+# digit so a leading "-" can't be mistaken for a `ping` flag.
+_HOSTNAME_RE = re.compile(
+    r'^[A-Za-z0-9]([A-Za-z0-9-]{0,62})?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62})?)*$'
+)
+
+
+def normalize_host(raw):
+    """Validate a user-supplied host and return the resolvable form, or
+    None if it isn't a plausible hostname/IP. Bare labels default to
+    mDNS (leader1 -> leader1.local) since that's how these robots are
+    reached on the LAN."""
+    host = (raw or "").strip()
+    if not host:
+        return None
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except ValueError:
+        pass
+    if not _HOSTNAME_RE.match(host):
+        return None
+    if "." not in host:
+        host += ".local"
+    return host
+
+# install/ of the colcon workspace this package is installed in, so Start
+# Normal/Mirror launch the same build as this UI.
+_WORKSPACE_INSTALL = os.path.dirname(get_package_prefix("gen2_leader"))
+
+_JOINT_DIR_CONFIG = os.path.join(
+    get_package_share_directory("gen2_leader"),
+    "config", "joint_direction.yaml"
+)
+
+
+# Sign of the gripper value each leader side publishes when opened, matching
+# the leader nodes' fallbacks when joint_direction.yaml doesn't set it. Mirror
+# is flipped because the right leader drives the left follower gripper, whose
+# open direction is negative (and vice versa).
+GRIPPER_DIRECTION_DEFAULTS = {
+    "normal": {"right_gripper_direction": 1, "left_gripper_direction": -1},
+    "mirror": {"right_gripper_direction": -1, "left_gripper_direction": 1},
+}
+GRIPPER_KEYS = ("right_gripper_direction", "left_gripper_direction")
+
+
+def _load_direction_config():
+    """Read joint_direction.yaml and return the full dict."""
+    path = os.path.realpath(_JOINT_DIR_CONFIG)
+    if not os.path.isfile(path):
+        return {}
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    # Fill keys the yaml leaves out with what the mirror node falls back to,
+    # so the UI shows the values the node actually runs with.
+    mirror = data.setdefault("mirror", {}) or {}
+    data["mirror"] = mirror
+    mirror.setdefault("right_direction", list(MIRROR_DEFAULT_RIGHT))
+    mirror.setdefault("left_direction", list(MIRROR_DEFAULT_LEFT))
+    mirror.pop("mirror_signs", None)
+    for mode in ("normal", "mirror"):
+        section = data.get(mode) or {}
+        data[mode] = section
+        for key, val in GRIPPER_DIRECTION_DEFAULTS[mode].items():
+            section.setdefault(key, val)
+    return data
+
+
+def _save_direction_config(data):
+    """Write `data` to joint_direction.yaml."""
+    path = os.path.realpath(_JOINT_DIR_CONFIG)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=None, sort_keys=False)
+
+
+# Must match mode_toggler's publisher QoS (transient-local) so this
+# subscriber gets the last settled mode even if it connects after
+# mode_toggler already published it, instead of waiting forever.
+MODE_STATUS_QOS = QoSProfile(
+    depth=1,
+    reliability=QoSReliabilityPolicy.RELIABLE,
+    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+    history=QoSHistoryPolicy.KEEP_LAST,
+)
+
+# Flask app
+app = Flask(__name__)
+setup_flask_gate(app, "leader_controller")
+
+# Global state
+process = None
+last_mode = None
+node_instance = None
+
+HTML = """
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daksha Leader Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+
+:root{
+  --bg:#eef3fb; --panel:#ffffff; --panel-2:#f7faff; --line:#dbe5f1;
+  --txt:#16263b; --muted:#5b6b80; --dim:#93a3b8;
+  --blue:#1f6feb; --blue-deep:#0b53c4; --blue-soft:#eaf2ff;
+  --rec:#e5484d; --play:#1f6feb; --ready:#16a34a; --amber:#c2750a;
+  --shadow:0 1px 2px rgba(16,33,61,.05), 0 10px 26px rgba(16,33,61,.07);
+  --shadow-sm:0 1px 2px rgba(16,33,61,.06);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; color:var(--txt); min-height:100vh;
+  background:
+    radial-gradient(900px 480px at 88% -8%, rgba(31,111,235,.10), transparent 62%),
+    linear-gradient(180deg,#f6f9ff,#eef3fb);
+  font-family:"Space Grotesk",system-ui,sans-serif; -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:"IBM Plex Mono",monospace}
+.wrap{max-width:1400px; margin:0 auto; padding:20px 22px 40px}
+.grid{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+.grid .span2{grid-column:1 / -1}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+
+header{display:flex; align-items:center; justify-content:space-between; gap:18px; flex-wrap:wrap;
+  padding-bottom:14px; border-bottom:1px solid var(--line); margin-bottom:16px;}
+.brand{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+.lamp{width:13px; height:13px; border-radius:50%; background:var(--dim);
+  box-shadow:0 0 0 4px rgba(31,111,235,.07); transition:.25s}
+.lamp.ready{background:var(--ready); box-shadow:0 0 9px rgba(22,163,74,.5)}
+.lamp.rec{background:var(--rec); box-shadow:0 0 12px rgba(229,72,77,.6),0 0 0 4px rgba(229,72,77,.12); animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+h1{font-size:21px; font-weight:600; letter-spacing:.13em; text-transform:uppercase; margin:0; color:var(--blue-deep)}
+h1 small{display:block; font-size:10.5px; letter-spacing:.3em; color:var(--muted); font-weight:500; margin-top:3px}
+.state-badge{font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.16em;
+  color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:8px;
+  padding:7px 12px; text-transform:uppercase; box-shadow:var(--shadow-sm);
+  display:inline-flex; align-items:center; gap:8px}
+.state-badge b{color:var(--blue-deep); font-weight:600}
+
+.card{background:var(--panel); border:1px solid var(--line); border-radius:14px;
+  padding:16px; box-shadow:var(--shadow)}
+.eyebrow{font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.24em;
+  text-transform:uppercase; color:var(--blue); display:flex; align-items:center; gap:8px; margin-bottom:16px}
+.eyebrow::before{content:""; width:18px; height:2px; background:var(--blue); border-radius:2px; opacity:.5}
+
+.btns{display:flex; gap:10px; flex-wrap:wrap}
+button, a.b-primary{font-family:"Space Grotesk",sans-serif; font-weight:600; font-size:13px; letter-spacing:.03em;
+  border:1px solid var(--line); background:#fff; color:var(--txt); padding:10px 14px;
+  border-radius:9px; cursor:pointer; transition:.15s; display:inline-flex; align-items:center; gap:8px;
+  box-shadow:var(--shadow-sm); flex:1 1 140px; justify-content:center}
+button:hover, a.b-primary:hover{border-color:var(--dim); transform:scale(1.02)}
+button:active, a.b-primary:active{transform:scale(0.98)}
+.b-primary{background:var(--blue); border-color:var(--blue); color:#fff}
+.b-primary:hover{background:var(--blue-deep); border-color:var(--blue-deep)}
+a.b-primary{background:var(--blue); border-color:var(--blue); color:#fff}
+a.b-primary:hover{background:var(--blue-deep); border-color:var(--blue-deep)}
+.b-play{border-color:rgba(31,111,235,.45); color:var(--blue)}
+.b-play:hover{background:var(--blue-soft)}
+.b-rec{border-color:rgba(229,72,77,.45); color:var(--rec)}
+.b-rec:hover{background:#fff0f0}
+.dot{width:9px;height:9px;border-radius:50%;background:currentColor;display:inline-block}
+
+.toggle{display:flex; gap:0; border:1px solid var(--line); border-radius:9px; overflow:hidden;
+  box-shadow:var(--shadow-sm)}
+.toggle button{flex:1; border:none; border-radius:0; box-shadow:none; background:#fff}
+.toggle button:not(:last-child){border-right:1px solid var(--line)}
+.toggle button.active{background:var(--blue); color:#fff}
+.toggle button.active.teach{background:var(--amber)}
+button:disabled{opacity:.5; cursor:not-allowed; transform:none}
+.b-home{background:var(--ready); border-color:var(--ready); color:#fff}
+.b-home:hover{background:#128a3e; border-color:#128a3e}
+
+.readout{display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line);
+  border:1px solid var(--line); border-radius:10px; overflow:hidden; margin-top:18px}
+.readout div{background:var(--panel-2); padding:10px 12px}
+.readout .k{font-size:10px; letter-spacing:.15em; text-transform:uppercase; color:var(--dim)}
+.readout .v{font-family:"IBM Plex Mono",monospace; font-size:16px; color:var(--txt); margin-top:3px}
+.readout .v.live{color:var(--ready)}
+.readout .v.err{color:var(--rec)}
+
+.field{margin-bottom:0}
+label{display:block; font-size:11px; letter-spacing:.05em; color:var(--muted); margin:0 0 6px}
+input{width:100%; background:#fbfdff; border:1px solid var(--line); color:var(--txt);
+  font-family:"IBM Plex Mono",monospace; font-size:13px; padding:11px 12px; border-radius:9px; outline:none; transition:.15s}
+input:focus{border-color:var(--blue); box-shadow:0 0 0 3px rgba(31,111,235,.12); background:#fff}
+.row{display:flex; gap:10px}
+.row input{flex:1}
+.row button{flex:0 0 auto; width:auto; padding:11px 20px}
+a.b-primary{text-decoration:none}
+
+</style>
+
+</head>
+
+<body>
+<script>
+function ihubToast(msg, isError){
+  var el=document.createElement('div');
+  el.textContent=msg;
+  Object.assign(el.style,{position:'fixed',bottom:'24px',left:'50%',transform:'translateX(-50%)',
+    background:isError?'#d81f2f':'#1e293b',color:'#fff',padding:'12px 28px',borderRadius:'10px',
+    font:'600 14px/1.4 system-ui,-apple-system,sans-serif',boxShadow:'0 4px 20px rgba(0,0,0,.35)',
+    zIndex:'99999',opacity:'0',transition:'opacity .3s',maxWidth:'90vw',textAlign:'center'});
+  document.body.appendChild(el);
+  requestAnimationFrame(()=>el.style.opacity='1');
+  setTimeout(()=>{el.style.opacity='0';setTimeout(()=>el.remove(),400);},3500);
+}
+async function ihubEmergencyStop(){
+  var btn=document.getElementById('ihubEstop');
+  var prev=btn.textContent; btn.disabled=true; btn.textContent='STOPPING…';
+  try{
+    var res=await fetch('http://'+location.hostname+':8100/api/kill',{method:'POST'});
+    var data={}; try{ data=await res.json(); }catch(e){}
+    ihubToast(data.message || (res.ok?'Bringup & applications stopped.':'E-STOP request failed.'), !res.ok);
+  }catch(e){
+    ihubToast('E-STOP request failed: '+e, true);
+  }finally{
+    btn.disabled=false; btn.textContent=prev;
+  }
+}
+</script>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="lamp" id="lamp"></span>
+      <h1>Daksha Leader Controller<small>Launch Control Console</small></h1>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px">
+      <div class="state-badge" id="stateBadge">STATUS · <b id="stateText">STOPPED</b></div>
+      <span id="ihubBattery" title="Battery" style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:999px;font:600 12px/1.2 'IBM Plex Mono',ui-monospace,monospace;border:1px solid #e2eaf6;background:#f7faff;color:#93a3b8;white-space:nowrap;"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="18" height="10" rx="2"/><path d="M22 10v4"/></svg><span id="ihubBatText">— %</span></span>
+      <button id="ihubEstop" onclick="ihubEmergencyStop()" title="Kill ROS 2 bringup" style="background:#d81f2f;color:#fff;border:2px solid rgba(255,255,255,.5);border-radius:8px;padding:8px 14px;font:700 12px/1.2 system-ui,-apple-system,sans-serif;letter-spacing:.04em;cursor:pointer;box-shadow:0 2px 10px rgba(216,31,47,.45);white-space:nowrap;">&#9211; E-STOP</button>
+    </div>
+  </header>
+<script>
+(function(){var C={good:{bg:'#e7f7ee',fg:'#16a34a',bd:'#16a34a'},mid:{bg:'#fef3e2',fg:'#f59e0b',bd:'#f59e0b'},low:{bg:'#fdeaea',fg:'#ef4444',bd:'#ef4444'},stale:{bg:'#f7faff',fg:'#93a3b8',bd:'#e2eaf6'}};function u(p,s){var el=document.getElementById('ihubBattery'),t=document.getElementById('ihubBatText');if(!el)return;var c=s?C.stale:p>40?C.good:p>20?C.mid:C.low;t.textContent=s?'— %':Math.round(p)+' %';el.style.background=c.bg;el.style.color=c.fg;el.style.borderColor=c.bd;}function poll(){fetch('http://'+location.hostname+':8100/api/battery').then(function(r){return r.json()}).then(function(d){u(d.percent,d.percent===null||d.age_s===null||d.age_s>5)}).catch(function(){u(0,true)});setTimeout(poll,3000);}poll();})();
+</script>
+
+  <div class="grid">
+
+    <!-- ROW 1: Launch Controls | Robot Mode -->
+    <div class="card">
+      <div class="eyebrow">Launch Controls</div>
+      <div class="btns">
+        <button class="b-primary" onclick="run('/normal')"><span class="dot"></span> Start Normal</button>
+        <button class="b-play" onclick="run('/mirror')"><span class="dot"></span> Start Mirror</button>
+        <button onclick="run('/restart')"><span class="dot"></span> Restart</button>
+        <button class="b-rec" onclick="run('/kill')"><span class="dot"></span> Kill Launch</button>
+      </div>
+      <div class="readout">
+        <div><div class="k">Status</div><div class="v" id="statusVal">—</div></div>
+        <div><div class="k">Mode</div><div class="v" id="modeVal">None</div></div>
+        <div><div class="k">Port</div><div class="v">8102</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="eyebrow">Robot Mode</div>
+      <div class="toggle">
+        <button id="btnTeach" class="teach" onclick="setRobotMode('teach')">Teach</button>
+        <button id="btnNormal" onclick="setRobotMode('normal')">Normal</button>
+      </div>
+      <div class="readout" style="grid-template-columns:1fr">
+        <div><div class="k">Robot Mode</div><div class="v" id="robotModeVal">unknown</div></div>
+      </div>
+      <div class="btns" style="margin-top:14px">
+        <button class="b-home" id="btnGoHome" onclick="goHome()"><span class="dot"></span> Go Home</button>
+      </div>
+      <div class="readout" style="grid-template-columns:1fr; margin-top:10px">
+        <div><div class="k">Go Home</div><div class="v" id="homeMsg">—</div></div>
+      </div>
+    </div>
+
+    <!-- ROW 2: Speed Limits | Leader Portal -->
+    <div class="card">
+      <div class="eyebrow">Speed Limits</div>
+      <div class="field">
+        <label>Max Velocity (rad/s)</label>
+        <div class="row">
+          <input id="velocityInput" type="number" step="0.1" min="0" placeholder="—">
+          <button class="b-primary" onclick="setVelocity()">Set</button>
+        </div>
+      </div>
+      <div class="field" style="margin-top:14px">
+        <label>Max Acceleration (rad/s²)</label>
+        <div class="row">
+          <input id="accelInput" type="number" step="0.5" min="0" placeholder="—">
+          <button class="b-primary" onclick="setAcceleration()">Set</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="eyebrow">Leader Portal</div>
+      <div class="field">
+        <label>Leader hostname</label>
+        <div class="row">
+          <input id="leaderHost" placeholder="leader or leader.local" value="leader">
+          <button class="b-primary" onclick="checkLeader()">Connect</button>
+        </div>
+      </div>
+      <div class="readout" style="grid-template-columns:1fr; margin-top:14px">
+        <div><div class="k">Reachability</div><div class="v" id="leaderStatusVal">not checked</div></div>
+      </div>
+      <div class="btns" style="margin-top:14px">
+        <a id="leaderLink" class="b-primary" style="display:none; margin-bottom:4px" href="#" target="_blank" rel="noopener">
+          <span class="dot"></span> <span id="leaderLinkText">Open Portal</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- ROW 3: Joint Direction Config (full width) -->
+    <div class="card span2">
+      <div class="eyebrow">Joint Direction Config</div>
+      <p style="font-size:12px; color:var(--muted); margin:0 0 14px">
+        Set the direction (+1 or −1) for each joint and the leader gripper (Grip). Click a cell to flip it, then Set Config to apply live or Save Config to keep it.
+      </p>
+
+      <div id="dir-config-tabs" style="display:flex; gap:0; border:1px solid var(--line); border-radius:9px; overflow:hidden; margin-bottom:16px">
+        <button class="dir-tab active" onclick="switchDirTab('normal')" id="dir-tab-normal" style="flex:1; padding:9px 0; border:none; background:var(--blue); color:#fff; font:600 13px 'Space Grotesk',sans-serif; cursor:pointer">Normal</button>
+        <button class="dir-tab" onclick="switchDirTab('mirror')" id="dir-tab-mirror" style="flex:1; padding:9px 0; border:none; border-left:1px solid var(--line); background:#fff; color:var(--txt); font:600 13px 'Space Grotesk',sans-serif; cursor:pointer">Mirror</button>
+      </div>
+
+      <div id="dir-normal-panel" style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
+        <div>
+          <label style="font-weight:600; color:var(--blue-deep); margin-bottom:8px">Right Arm</label>
+          <div id="dir-normal-right" class="dir-grid"></div>
+        </div>
+        <div>
+          <label style="font-weight:600; color:var(--blue-deep); margin-bottom:8px">Left Arm</label>
+          <div id="dir-normal-left" class="dir-grid"></div>
+        </div>
+      </div>
+
+      <div id="dir-mirror-panel" style="display:none">
+        <p style="font-size:12px; color:var(--muted); margin:0 0 12px">
+          Right leader drives the left follower and left leader drives the right follower. J4 is flipped automatically.
+        </p>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
+          <div>
+            <label style="font-weight:600; color:var(--blue-deep); margin-bottom:8px">Right Leader &rarr; Left Follower</label>
+            <div id="dir-mirror-right" class="dir-grid"></div>
+          </div>
+          <div>
+            <label style="font-weight:600; color:var(--blue-deep); margin-bottom:8px">Left Leader &rarr; Right Follower</label>
+            <div id="dir-mirror-left" class="dir-grid"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="btns" style="margin-top:16px">
+        <button class="b-primary" onclick="setDirConfigLive()">Set Config</button>
+        <button onclick="loadDirConfigLive()">Load Live</button>
+        <button onclick="saveDirConfig()">Save Config</button>
+      </div>
+      <div id="dir-status" style="font-size:12px; margin-top:8px; color:var(--muted)"></div>
+    </div>
+
+  </div>
+</div>
+
+<style>
+.dir-grid{display:grid; grid-template-columns:repeat(8,1fr); gap:6px; margin-top:6px}
+.dir-cell.grip{border-style:dashed; border-color:var(--amber)}
+.dir-cell{display:flex; flex-direction:column; align-items:center; gap:4px;
+  background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:8px 4px; cursor:pointer; transition:.15s; user-select:none}
+.dir-cell:hover{border-color:var(--blue); background:var(--blue-soft)}
+.dir-cell .jname{font-size:10px; color:var(--muted); font-weight:600; letter-spacing:.03em}
+.dir-cell .jval{font-family:"IBM Plex Mono",monospace; font-size:15px; font-weight:700; color:var(--blue-deep)}
+.dir-cell.neg .jval{color:var(--rec)}
+</style>
+
+<script>
+
+var dirConfig = {
+  normal: {right_direction:[-1,-1,1,1,1,-1,1], left_direction:[-1,1,-1,-1,1,1,1],
+           right_gripper_direction:1, left_gripper_direction:-1},
+  mirror: {right_direction:{{ mirror_right|tojson }}, left_direction:{{ mirror_left|tojson }},
+           right_gripper_direction:-1, left_gripper_direction:1}
+};
+
+function switchDirTab(tab)
+{
+  document.getElementById('dir-normal-panel').style.display = tab==='normal' ? '' : 'none';
+  document.getElementById('dir-mirror-panel').style.display = tab==='mirror' ? '' : 'none';
+  document.getElementById('dir-tab-normal').style.background = tab==='normal' ? 'var(--blue)' : '#fff';
+  document.getElementById('dir-tab-normal').style.color = tab==='normal' ? '#fff' : 'var(--txt)';
+  document.getElementById('dir-tab-mirror').style.background = tab==='mirror' ? 'var(--blue)' : '#fff';
+  document.getElementById('dir-tab-mirror').style.color = tab==='mirror' ? '#fff' : 'var(--txt)';
+}
+
+function dirCell(label, val, onFlip)
+{
+  var cell = document.createElement('div');
+  cell.className = 'dir-cell' + (val===-1 ? ' neg' : '');
+  cell.innerHTML = '<span class="jname">' + label + '</span><span class="jval">' + (val===1?'+1':'−1') + '</span>';
+  cell.onclick = function(){ onFlip(); renderAllDirGrids(); };
+  return cell;
+}
+
+// One arm: J1..J7 from <side>_direction, then Grip from <side>_gripper_direction.
+function renderDirGrid(containerId, mode, side)
+{
+  var el = document.getElementById(containerId);
+  var cfg = dirConfig[mode];
+  var arr = cfg[side + '_direction'];
+  var gripKey = side + '_gripper_direction';
+  el.className = 'dir-grid';
+  el.innerHTML = '';
+  arr.forEach(function(v, i){
+    el.appendChild(dirCell('J' + (i+1), v, function(){ arr[i] *= -1; }));
+  });
+  var grip = dirCell('Grip', cfg[gripKey], function(){ cfg[gripKey] *= -1; });
+  grip.classList.add('grip');
+  el.appendChild(grip);
+}
+
+function renderAllDirGrids()
+{
+  renderDirGrid('dir-normal-right', 'normal', 'right');
+  renderDirGrid('dir-normal-left', 'normal', 'left');
+  renderDirGrid('dir-mirror-right', 'mirror', 'right');
+  renderDirGrid('dir-mirror-left', 'mirror', 'left');
+}
+
+function loadDirConfig()
+{
+  var st = document.getElementById('dir-status');
+  st.textContent = 'Loading…';
+  st.style.color = 'var(--muted)';
+  fetch('/joint_direction_config')
+  .then(function(r){return r.json()})
+  .then(function(data){
+    if(data.ok && data.config)
+    {
+      if(data.config.normal) dirConfig.normal = data.config.normal;
+      if(data.config.mirror) dirConfig.mirror = data.config.mirror;
+      renderAllDirGrids();
+      st.textContent = 'Config loaded from file.';
+      st.style.color = 'var(--ready)';
+    }
+    else
+    {
+      st.textContent = data.error || 'No config found, using defaults.';
+      st.style.color = 'var(--amber)';
+    }
+  })
+  .catch(function(e){
+    st.textContent = 'Load failed: ' + e;
+    st.style.color = 'var(--rec)';
+  });
+}
+
+function loadDirConfigLive()
+{
+  var st = document.getElementById('dir-status');
+  st.textContent = 'Reading running node…';
+  st.style.color = 'var(--muted)';
+  fetch('/joint_direction_live')
+  .then(function(r){return r.json()})
+  .then(function(data){
+    if(data.ok)
+    {
+      dirConfig[data.mode] = data.config;
+      switchDirTab(data.mode);
+      renderAllDirGrids();
+      st.textContent = 'Loaded live values from ' + data.mode + ' node.';
+      st.style.color = 'var(--ready)';
+    }
+    else
+    {
+      st.textContent = 'Load live failed: ' + (data.error || 'unknown');
+      st.style.color = 'var(--rec)';
+    }
+  })
+  .catch(function(e){
+    st.textContent = 'Load live failed: ' + e;
+    st.style.color = 'var(--rec)';
+  });
+}
+
+function saveDirConfig()
+{
+  var st = document.getElementById('dir-status');
+  st.textContent = 'Saving…';
+  st.style.color = 'var(--muted)';
+  fetch('/joint_direction_config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({config: dirConfig})
+  })
+  .then(function(r){return r.json()})
+  .then(function(data){
+    if(data.ok)
+    {
+      st.textContent = 'Config saved to file.';
+      st.style.color = 'var(--ready)';
+    }
+    else
+    {
+      st.textContent = 'Save failed: ' + (data.error || 'unknown');
+      st.style.color = 'var(--rec)';
+    }
+  })
+  .catch(function(e){
+    st.textContent = 'Save failed: ' + e;
+    st.style.color = 'var(--rec)';
+  });
+}
+
+function setDirConfigLive()
+{
+  var st = document.getElementById('dir-status');
+  st.textContent = 'Applying…';
+  st.style.color = 'var(--muted)';
+  fetch('/set_joint_direction', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({config: dirConfig})
+  })
+  .then(function(r){return r.json()})
+  .then(function(data){
+    if(data.ok)
+    {
+      st.textContent = 'Direction applied live (' + data.mode + ' node).';
+      st.style.color = 'var(--ready)';
+    }
+    else
+    {
+      st.textContent = 'Set failed: ' + (data.error || 'unknown');
+      st.style.color = 'var(--rec)';
+    }
+  })
+  .catch(function(e){
+    st.textContent = 'Set failed: ' + e;
+    st.style.color = 'var(--rec)';
+  });
+}
+
+loadDirConfig();
+renderAllDirGrids();
+
+function run(url)
+{
+    fetch(url)
+    .then(r=>r.json())
+    .then(updateStatus);
+}
+
+function setRobotMode(mode)
+{
+    fetch("/mode/" + mode)
+    .then(r=>r.json())
+    .then(updateStatus);
+}
+
+function goHome()
+{
+    const btn = document.getElementById("btnGoHome");
+    const msgEl = document.getElementById("homeMsg");
+    btn.disabled = true;
+    msgEl.textContent = "switching to normal, moving…";
+    msgEl.className = "v";
+
+    fetch("/home")
+    .then(r=>r.json())
+    .then(data=>{
+        msgEl.textContent = data.message || (data.ok ? "done" : "failed");
+        msgEl.className = data.ok ? "v live" : "v err";
+        btn.disabled = false;
+        updateStatus();
+    })
+    .catch(()=>{
+        msgEl.textContent = "request failed";
+        msgEl.className = "v err";
+        btn.disabled = false;
+    });
+}
+
+function checkLeader()
+{
+    const host = document.getElementById("leaderHost").value.trim();
+    const statusVal = document.getElementById("leaderStatusVal");
+    const link = document.getElementById("leaderLink");
+
+    if(!host)
+    {
+        statusVal.textContent = "enter a hostname";
+        statusVal.className = "v err";
+        link.style.display = "none";
+        return;
+    }
+
+    statusVal.textContent = "checking…";
+    statusVal.className = "v";
+    link.style.display = "none";
+
+    fetch("/check_leader?host=" + encodeURIComponent(host))
+    .then(r=>r.json())
+    .then(data=>{
+        if(!data.valid)
+        {
+            statusVal.textContent = "invalid hostname";
+            statusVal.className = "v err";
+            link.style.display = "none";
+            return;
+        }
+        if(data.available)
+        {
+            statusVal.textContent = "available (" + data.host + ")";
+            statusVal.className = "v live";
+            document.getElementById("leaderLinkText").textContent = "Open http://" + data.host + "/";
+            link.href = "http://" + data.host + "/";
+            link.style.display = "inline-flex";
+        }
+        else
+        {
+            statusVal.textContent = "unreachable (" + data.host + ")";
+            statusVal.className = "v err";
+            link.style.display = "none";
+        }
+    })
+    .catch(()=>{
+        statusVal.textContent = "check failed";
+        statusVal.className = "v err";
+        link.style.display = "none";
+    });
+}
+
+function setVelocity()
+{
+    const val = parseFloat(document.getElementById("velocityInput").value);
+    if(isNaN(val)) return;
+    fetch("/velocity_set/" + val).then(r=>r.json());
+}
+
+function setAcceleration()
+{
+    const val = parseFloat(document.getElementById("accelInput").value);
+    if(isNaN(val)) return;
+    fetch("/acceleration_set/" + val).then(r=>r.json());
+}
+
+function pollVelocity()
+{
+    fetch("/velocity_status")
+    .then(r=>r.json())
+    .then(data=>{
+        const el = document.getElementById("velocityInput");
+        if(data.available && document.activeElement !== el)
+        {
+            el.value = data.value.toFixed(2);
+        }
+    })
+    .finally(()=>setTimeout(pollVelocity, 3000));
+}
+
+function pollAcceleration()
+{
+    fetch("/acceleration_status")
+    .then(r=>r.json())
+    .then(data=>{
+        const el = document.getElementById("accelInput");
+        if(data.available && document.activeElement !== el)
+        {
+            el.value = data.value.toFixed(2);
+        }
+    })
+    .finally(()=>setTimeout(pollAcceleration, 3000));
+}
+
+pollVelocity();
+pollAcceleration();
+
+function updateStatus()
+{
+    fetch("/status")
+    .then(r=>r.json())
+    .then(data=>{
+
+        const lamp = document.getElementById("lamp");
+        const stateText = document.getElementById("stateText");
+        const statusVal = document.getElementById("statusVal");
+        const modeVal = document.getElementById("modeVal");
+        const robotModeVal = document.getElementById("robotModeVal");
+        const btnTeach = document.getElementById("btnTeach");
+        const btnNormal = document.getElementById("btnNormal");
+
+        if(data.running)
+        {
+            lamp.className = "lamp ready";
+            stateText.textContent = "RUNNING";
+            statusVal.textContent = "RUNNING";
+            statusVal.className = "v live";
+        }
+        else
+        {
+            lamp.className = "lamp";
+            stateText.textContent = "STOPPED";
+            statusVal.textContent = "STOPPED";
+            statusVal.className = "v";
+        }
+
+        modeVal.textContent = data.mode == null ? "None" : data.mode;
+
+        robotModeVal.textContent = data.robot_mode;
+        btnTeach.className = data.robot_mode === "teach" ? "teach active" : "teach";
+        btnNormal.className = data.robot_mode === "normal" ? "active" : "";
+    });
+}
+
+setInterval(updateStatus, 1000);
+
+updateStatus();
+
+</script>
+
+</body>
+</html>
+"""
+
+
+class Gen2LeaderNode(Node):
+    """ROS2 Node for Daksha Leader Control"""
+    
+    def __init__(self, node_name='gen2_leader_controller'):
+        super().__init__(node_name)
+        self.get_logger().info('Daksha Leader Controller Node started')
+        self.process = None
+        self.last_mode = None
+
+        self._robot_mode = "unknown"
+        self.create_subscription(
+            String, "/mode_toggler/status", self._robot_mode_cb, MODE_STATUS_QOS,
+        )
+
+        # Parameter service clients, cached per (node_name, service kind) so
+        # repeated get/set calls don't re-create a client (and its discovery
+        # overhead) every time.
+        self._param_clients = {}
+
+    def _robot_mode_cb(self, msg):
+        self._robot_mode = msg.data
+
+    def get_robot_mode(self):
+        return self._robot_mode
+
+    def _get_param_client(self, node_name, kind):
+        """Lazily create/cache a GetParameters or SetParameters client for
+        `node_name` ('get' or 'set')."""
+        key = (node_name, kind)
+        client = self._param_clients.get(key)
+        if client is not None:
+            return client
+        srv_type = GetParameters if kind == "get" else SetParameters
+        client = self.create_client(srv_type, f"{node_name}/{kind}_parameters")
+        self._param_clients[key] = client
+        return client
+
+    def _call_param_service(self, client, request, timeout_s):
+        """Send a request on an rcl_interfaces parameter service client and
+        wait (via the executor already spinning this node, e.g. in main())
+        for the response, bounded by `timeout_s`. Does NOT spin itself, to
+        avoid racing the node's own spin() call from another thread."""
+        if not client.wait_for_service(timeout_sec=timeout_s):
+            raise TimeoutError(f"{client.srv_name} is not available")
+        future = client.call_async(request)
+        deadline = time.time() + timeout_s
+        while not future.done():
+            if time.time() >= deadline:
+                future.cancel()
+                raise TimeoutError(f"{client.srv_name} call timed out")
+            time.sleep(0.01)
+        if future.exception() is not None:
+            raise future.exception()
+        return future.result()
+
+    def set_robot_mode(self, mode):
+        """Best-effort `/mode_toggler/set_parameters` call for the 'mode' param."""
+        if mode not in ("teach", "normal"):
+            return False
+        try:
+            client = self._get_param_client("/mode_toggler", "set")
+            request = SetParameters.Request(parameters=[
+                Parameter(
+                    name="mode",
+                    value=ParameterValue(
+                        type=ParameterType.PARAMETER_STRING, string_value=mode,
+                    ),
+                ),
+            ])
+            response = self._call_param_service(client, request, timeout_s=5.0)
+            if not response.results[0].successful:
+                raise RuntimeError(response.results[0].reason)
+            self.get_logger().info(f'Robot mode set to {mode}')
+            return True
+        except Exception as e:
+            self.get_logger().error(f'Failed to set robot mode to {mode}: {str(e)}')
+            return False
+
+    def get_double_param(self, node_name, name):
+        """Best-effort `<node_name>/get_parameters` call for a double param."""
+        try:
+            client = self._get_param_client(node_name, "get")
+            request = GetParameters.Request(names=[name])
+            response = self._call_param_service(client, request, timeout_s=1.5)
+            return response.values[0].double_value
+        except Exception as e:
+            self.get_logger().error(f'Failed to get {node_name} {name}: {str(e)}')
+            return None
+
+    def set_double_param(self, node_name, name, value):
+        """Best-effort `<node_name>/set_parameters` call for a double param."""
+        try:
+            client = self._get_param_client(node_name, "set")
+            request = SetParameters.Request(parameters=[
+                Parameter(
+                    name=name,
+                    value=ParameterValue(
+                        type=ParameterType.PARAMETER_DOUBLE, double_value=float(value),
+                    ),
+                ),
+            ])
+            response = self._call_param_service(client, request, timeout_s=5.0)
+            if not response.results[0].successful:
+                raise RuntimeError(response.results[0].reason)
+            self.get_logger().info(f'{node_name} {name} set to {value}')
+            return True
+        except Exception as e:
+            self.get_logger().error(f'Failed to set {node_name} {name} to {value}: {str(e)}')
+            return False
+
+    def get_integer_param(self, node_name, name):
+        """Best-effort `<node_name>/get_parameters` call for an integer param."""
+        try:
+            client = self._get_param_client(node_name, "get")
+            request = GetParameters.Request(names=[name])
+            response = self._call_param_service(client, request, timeout_s=1.5)
+            return response.values[0].integer_value
+        except Exception as e:
+            self.get_logger().error(f'Failed to get {node_name} {name}: {str(e)}')
+            return None
+
+    def set_integer_param(self, node_name, name, value):
+        """Set an integer parameter on a running node."""
+        try:
+            client = self._get_param_client(node_name, "set")
+            request = SetParameters.Request(parameters=[
+                Parameter(
+                    name=name,
+                    value=ParameterValue(
+                        type=ParameterType.PARAMETER_INTEGER, integer_value=int(value),
+                    ),
+                ),
+            ])
+            response = self._call_param_service(client, request, timeout_s=5.0)
+            if not response.results[0].successful:
+                raise RuntimeError(response.results[0].reason)
+            self.get_logger().info(f'{node_name} {name} set to {value}')
+            return True
+        except Exception as e:
+            self.get_logger().error(f'Failed to set {node_name} {name}: {str(e)}')
+            return False
+
+    def get_integer_array_param(self, node_name, name):
+        """Best-effort `<node_name>/get_parameters` call for an integer-array param."""
+        try:
+            client = self._get_param_client(node_name, "get")
+            request = GetParameters.Request(names=[name])
+            response = self._call_param_service(client, request, timeout_s=1.5)
+            return list(response.values[0].integer_array_value)
+        except Exception as e:
+            self.get_logger().error(f'Failed to get {node_name} {name}: {str(e)}')
+            return None
+
+    def set_integer_array_param(self, node_name, name, values):
+        """Set an integer-array parameter on a running node."""
+        try:
+            client = self._get_param_client(node_name, "set")
+            request = SetParameters.Request(parameters=[
+                Parameter(
+                    name=name,
+                    value=ParameterValue(
+                        type=ParameterType.PARAMETER_INTEGER_ARRAY,
+                        integer_array_value=[int(v) for v in values],
+                    ),
+                ),
+            ])
+            response = self._call_param_service(client, request, timeout_s=5.0)
+            if not response.results[0].successful:
+                raise RuntimeError(response.results[0].reason)
+            self.get_logger().info(f'{node_name} {name} set to {values}')
+            return True
+        except Exception as e:
+            self.get_logger().error(f'Failed to set {node_name} {name}: {str(e)}')
+            return False
+
+    def get_max_velocity(self):
+        return self.get_double_param("/joint_command_limiter", "max_velocity")
+
+    def set_max_velocity(self, value):
+        return self.set_double_param("/joint_command_limiter", "max_velocity", value)
+
+    def get_max_acceleration(self):
+        return self.get_double_param("/joint_command_limiter", "max_acceleration")
+
+    def set_max_acceleration(self, value):
+        return self.set_double_param("/joint_command_limiter", "max_acceleration", value)
+
+    def wait_for_mode(self, target, timeout_s=6.0):
+        """Blocks (bounded) until /mode_toggler/status reports `target`."""
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            if self._robot_mode == target:
+                return True, f"mode_toggler settled at '{target}'"
+            time.sleep(0.05)
+        return False, (
+            f"mode_toggler did not settle at '{target}' in {timeout_s:.1f}s "
+            f"(last status: '{self._robot_mode}')"
+        )
+
+    def move_home(self):
+        """Switch to normal mode (so the arm actually tracks a trajectory
+        instead of sitting backdrivable in teach mode), wait for it to land
+        on hardware, then trigger the home move: the /move_home service if
+        it's available, otherwise a direct zero-position /joint_cmd publish."""
+        if not self.set_robot_mode("normal"):
+            return False, "Failed to switch to normal mode."
+        settled, wmsg = self.wait_for_mode("normal")
+        if not settled:
+            return False, wmsg
+
+        try:
+            result = subprocess.run(
+                ["ros2", "service", "call", "/move_home", "std_srvs/srv/Trigger", "{}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                self.get_logger().info('Triggered /move_home service')
+                return True, "Switched to normal mode and triggered /move_home."
+        except Exception as e:
+            self.get_logger().error(f'/move_home service call failed: {str(e)}')
+
+        # Fallback: publish zero positions directly to /joint_cmd.
+        joint_names = [
+            "left_joint_1", "left_joint_2", "left_joint_3", "left_joint_4",
+            "left_joint_5", "left_joint_6", "left_joint_7",
+            "right_joint_1", "right_joint_2", "right_joint_3", "right_joint_4",
+            "right_joint_5", "right_joint_6", "right_joint_7",
+            "left_gripper_left_joint", "right_gripper_right_joint",
+        ]
+        names = "[" + ", ".join(joint_names) + "]"
+        positions = "[" + ", ".join("0" for _ in joint_names) + "]"
+        try:
+            subprocess.Popen([
+                "ros2", "topic", "pub", "--once", "/joint_cmd",
+                "sensor_msgs/msg/JointState",
+                f"{{name: {names}, position: {positions}}}",
+            ])
+            return True, "Switched to normal mode and published Home pose to /joint_cmd."
+        except Exception as e:
+            self.get_logger().error(f'Home fallback publish failed: {str(e)}')
+            return False, f"Failed to trigger home move: {str(e)}"
+
+    def kill_process(self):
+        """Kill the running process"""
+        global process, last_mode
+        
+        if self.process is not None:
+            if self.process.poll() is None:
+                try:
+                    os.killpg(os.getpgid(self.process.pid), signal.SIGINT)
+                    self.process.wait(timeout=5)
+                except:
+                    try:
+                        self.process.kill()
+                    except:
+                        pass
+        
+        self.process = None
+        process = None
+        last_mode = None
+    
+    def start_launch(self, mode):
+        """Start a launch (normal or mirror)"""
+        global process, last_mode
+        
+        self.get_logger().info(f'Starting {mode} launch...')
+        
+        self.kill_process()
+        
+        if mode == "normal":
+            cmd = """
+            source /opt/ros/jazzy/setup.bash
+            source {install}/setup.bash
+            ros2 launch gen2_leader gen2_leader.launch.py
+            """.format(install=_WORKSPACE_INSTALL)
+        elif mode == "mirror":
+            cmd = """
+            source /opt/ros/jazzy/setup.bash
+            source {install}/setup.bash
+            ros2 launch gen2_leader gen2_leader_mirror.launch.py
+            """.format(install=_WORKSPACE_INSTALL)
+        else:
+            return False
+        
+        try:
+            self.process = subprocess.Popen(
+                ["bash", "-c", cmd],
+                preexec_fn=os.setsid
+            )
+            process = self.process
+            last_mode = mode
+            self.last_mode = mode
+            
+            self.get_logger().info(f'{mode} launch started (PID: {self.process.pid})')
+            return True
+        except Exception as e:
+            self.get_logger().error(f'Failed to start {mode} launch: {str(e)}')
+            return False
+    
+    def is_running(self):
+        """Check if process is running"""
+        if self.process is None:
+            return False
+        return self.process.poll() is None
+
+
+# ============================================================================
+# Flask Routes
+# ============================================================================
+
+@app.route("/")
+def index():
+    return render_template_string(
+        HTML, mirror_right=MIRROR_DEFAULT_RIGHT, mirror_left=MIRROR_DEFAULT_LEFT)
+
+
+@app.route("/normal")
+def normal():
+    if node_instance:
+        node_instance.start_launch("normal")
+    return jsonify(ok=True)
+
+
+@app.route("/mirror")
+def mirror():
+    if node_instance:
+        node_instance.start_launch("mirror")
+    return jsonify(ok=True)
+
+
+@app.route("/kill")
+def kill():
+    global process, last_mode
+    if node_instance:
+        node_instance.kill_process()
+    process = None
+    last_mode = None
+    return jsonify(ok=True)
+
+
+@app.route("/restart")
+def restart():
+    if node_instance and node_instance.last_mode:
+        node_instance.start_launch(node_instance.last_mode)
+    return jsonify(ok=True)
+
+
+@app.route("/home")
+def go_home():
+    ok, msg = False, "Node not ready."
+    if node_instance:
+        ok, msg = node_instance.move_home()
+    return jsonify(ok=ok, message=msg)
+
+
+@app.route("/mode/<mode>")
+def set_mode(mode):
+    ok = False
+    if node_instance:
+        ok = node_instance.set_robot_mode(mode)
+    return jsonify(ok=ok)
+
+
+@app.route("/velocity_status")
+def velocity_status():
+    value = node_instance.get_max_velocity() if node_instance else None
+    return jsonify(available=value is not None, value=value)
+
+
+@app.route("/velocity_set/<value>")
+def velocity_set(value):
+    ok = False
+    if node_instance:
+        try:
+            ok = node_instance.set_max_velocity(float(value))
+        except ValueError:
+            ok = False
+    return jsonify(ok=ok)
+
+
+@app.route("/acceleration_status")
+def acceleration_status():
+    value = node_instance.get_max_acceleration() if node_instance else None
+    return jsonify(available=value is not None, value=value)
+
+
+@app.route("/acceleration_set/<value>")
+def acceleration_set(value):
+    ok = False
+    if node_instance:
+        try:
+            ok = node_instance.set_max_acceleration(float(value))
+        except ValueError:
+            ok = False
+    return jsonify(ok=ok)
+
+
+@app.route("/check_leader")
+def check_leader():
+    host = normalize_host(request.args.get("host", ""))
+    if host is None:
+        return jsonify(valid=False, available=False, host=None)
+
+    try:
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", "2", host],
+            capture_output=True, text=True, timeout=5.0,
+        )
+        available = result.returncode == 0
+    except Exception:
+        available = False
+
+    return jsonify(valid=True, available=available, host=host)
+
+
+@app.route("/joint_direction_config")
+def get_joint_direction_config():
+    try:
+        data = _load_direction_config()
+        return jsonify(ok=True, config=data)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e))
+
+
+@app.route("/joint_direction_config", methods=["POST"])
+def save_joint_direction_config():
+    try:
+        payload = request.get_json(force=True) or {}
+        config = payload.get("config", {})
+        for mode in ("normal", "mirror"):
+            section = config.get(mode, {})
+            for key in ("right_direction", "left_direction"):
+                arr = section.get(key, [])
+                if len(arr) != 7 or not all(v in (1, -1) for v in arr):
+                    return jsonify(ok=False,
+                                   error=f"{mode}.{key} must be 7 values of 1 or -1")
+            for key in GRIPPER_KEYS:
+                if section.get(key) not in (1, -1):
+                    return jsonify(ok=False,
+                                   error=f"{mode}.{key} must be 1 or -1")
+            section.pop("mirror_signs", None)
+        _save_direction_config(config)
+        return jsonify(ok=True)
+    except Exception as e:
+        return jsonify(ok=False, error=str(e))
+
+
+@app.route("/set_joint_direction", methods=["POST"])
+def set_joint_direction_live():
+    """Push direction arrays to the running leader node as ROS2 parameters."""
+    if not node_instance:
+        return jsonify(ok=False, error="Node not ready")
+
+    payload = request.get_json(force=True) or {}
+    config = payload.get("config", {})
+    mode = node_instance.last_mode
+    if not mode or not node_instance.is_running():
+        return jsonify(ok=False, error="No leader launch running")
+
+    node_name = "/leader_wifi" if mode == "normal" else "/leader_mirror"
+    section = config.get(mode, {})
+    errors = []
+
+    for key in ("right_direction", "left_direction"):
+        arr = section.get(key)
+        if arr and len(arr) == 7:
+            ok = node_instance.set_integer_array_param(node_name, key, arr)
+            if not ok:
+                errors.append(f"Failed to set {key}")
+
+    for key in GRIPPER_KEYS:
+        val = section.get(key)
+        if val in (1, -1):
+            if not node_instance.set_integer_param(node_name, key, val):
+                errors.append(f"Failed to set {key}")
+
+    if errors:
+        return jsonify(ok=False, error="; ".join(errors))
+    return jsonify(ok=True, mode=mode)
+
+
+@app.route("/joint_direction_live")
+def get_joint_direction_live():
+    """Read direction arrays from the running leader node."""
+    if not node_instance:
+        return jsonify(ok=False, error="Node not ready")
+
+    mode = node_instance.last_mode
+    if not mode or not node_instance.is_running():
+        return jsonify(ok=False, error="No leader launch running")
+
+    node_name = "/leader_wifi" if mode == "normal" else "/leader_mirror"
+    config = {}
+    for key in ("right_direction", "left_direction"):
+        arr = node_instance.get_integer_array_param(node_name, key)
+        if arr is None:
+            return jsonify(ok=False, error=f"Failed to read {key} from {node_name}")
+        config[key] = arr
+    for key in GRIPPER_KEYS:
+        val = node_instance.get_integer_param(node_name, key)
+        if val is None:
+            return jsonify(ok=False, error=f"Failed to read {key} from {node_name}")
+        config[key] = val
+    return jsonify(ok=True, mode=mode, config=config)
+
+
+@app.route("/status")
+def status():
+    running = False
+    mode = None
+    robot_mode = "unknown"
+
+    if node_instance:
+        running = node_instance.is_running()
+        mode = node_instance.last_mode
+        robot_mode = node_instance.get_robot_mode()
+
+    return jsonify(
+        running=running,
+        mode=mode,
+        robot_mode=robot_mode
+    )
+
+
+# ============================================================================
+# Main
+# ============================================================================
+
+def run_flask():
+    """Run Flask server in separate thread"""
+    print("Web server starting on http://0.0.0.0:8102")
+
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
+
+    app.run(host="0.0.0.0", port=8102, debug=False, use_reloader=False, threaded=True)
+
+
+def main():
+    """Main entry point"""
+    global node_instance
+    
+    # Initialize ROS2
+    rclpy.init()
+    
+    # Create ROS2 node
+    node = Gen2LeaderNode()
+    node_instance = node
+    
+    print("="*60)
+    print(" Daksha Leader Web Controller (ROS2 Node)")
+    print("="*60)
+    print("Open your browser:")
+    print(f"  http://{socket.gethostname().lower()}.local:8102")
+    print("  or")
+    print("  http://<ROBOT_IP>:8102")
+    print("="*60)
+    print()
+    
+    # Start Flask in separate thread
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    
+    # Spin ROS2 node
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        node.get_logger().info('Shutting down...')
+        node.kill_process()
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

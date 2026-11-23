@@ -1,0 +1,68 @@
+cd /home/ihub/robot/src/agents/ros_agent/local_daksha_rax
+source scripts/activate_local.sh
+MUJOCO_GL=egl PYTHONPATH=$PWD setsid nohup /home/ihub/daksha_venv/bin/python -u -m local_pipeline.run \
+  --model 35b --host 0.0.0.0 --port 8092 --no-repl > runtime/local_pipeline/live.log 2>&1 &
+tail -f runtime/local_pipeline/live.log
+
+
+
+
+cd /home/ihub/robot/src/agents/ros_agent/local_daksha_rax
+source scripts/activate_local.sh
+/home/ihub/daksha_venv/bin/python -m harness.launcher prepare --name q1 --robot daksha_sim_ollama
+/home/ihub/daksha_venv/bin/python scripts/viewer.py --name q1 --host 0.0.0.0 --port 8090 &
+/home/ihub/daksha_venv/bin/python -m harness.launcher launch --name q1
+
+
+
+
+
+real time - model run 
+
+
+
+cd /home/ihub/robot/src/agents/ros_agent/local_daksha_rax
+source scripts/activate_local.sh
+scripts/setup_local.sh
+"$DAKSHA_PYTHON" -m local_pipeline.run --model 35b
+
+
+
+
+
+#####launch command 
+
+
+cd /home/ihub/robot && source install/setup.bash && ros2 launch ros_agent agent_with_aruco_reach.launch.py llm_model:=qwen3.5:35b pipeline_execute:=true reach_execute:=true
+
+##camera calibration
+
+cd ~/robot
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+ros2 launch aruco_hand_eye aruco_reach.launch.py
+
+
+
+###testing 
+
+ros2 service call /aruco_reach/set_execute std_srvs/srv/SetBool "{data: true}"
+ros2 service call /aruco_reach/right/go std_srvs/srv/Trigger
+
+ros2 service call /aruco_reach/stop std_srvs/srv/Trigger
+
+ros2 launch aruco_hand_eye daksha_hand_eye.launch.py
+
+
+
+
+cd /home/ihub/robot
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-up-to aruco_hand_eye
+source install/setup.bash
+
+
+ros2 service call /aruco_reach/go_pose \
+  aruco_hand_eye_interfaces/srv/GoToMarkerPose \
+  "{arm: right, camera: right_wrist, marker_pose: {header: {frame_id: camera_color_optical_frame}, pose: {position: {x: 0.4, y: 0.1, z: 0.5}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}}"

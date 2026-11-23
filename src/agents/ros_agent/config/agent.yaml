@@ -1,0 +1,26 @@
+/**:
+  ros__parameters:
+    robot_id: gen2
+    robots_config: ""            # empty = <share>/config/robots.yaml
+
+    # Local Ollama server (OpenAI-compatible endpoint). llm_model is an
+    # `ollama list` name; a vision model is needed for cameras and
+    # box_object. Empty base URL disables the LLM; tools still work via ~/tool.
+    llm_base_url: "http://localhost:11434/v1"
+    llm_model: "qwen3.5:35b"      # ONE model for the whole pipeline (Ask, RAX agent, vision, tracking); UI picker changes it
+    llm_api_key: "ollama"
+    llm_timeout: 120.0           # first question also loads the model into memory
+    llm_max_steps: 8             # tool calls per question
+
+    # Live data older than this is reported as stale.
+    max_state_age: 0.5
+
+    # Cameras: empty = automation's lib/automation/config/camera_topics.yaml
+    # (the same list the bring_up Cameras panel uses).
+    camera_topics_config: ""
+    camera_max_age: 2.0          # older frames are reported as stale
+
+    # Chat page: http://<robot>:<web_port>/   (0 disables it). Access is
+    # controlled by the "ros_agent" key in automation/config/web_access.yaml.
+    web_host: "0.0.0.0"
+    web_port: 8150

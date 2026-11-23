@@ -1,0 +1,45 @@
+# Parameters for collusion/collision_monitor.
+#
+# Empty file paths fall back to the defaults:
+#   urdf_file            daksha_description_full_body/urdf/robot_collision.urdf
+#   collision_pairs_file kinematics/config/collision_pairs.json
+#   obstacles_file       collusion/config/obstacles.yaml
+# The URDF and pair list must come from the same geometry - regenerate both
+# with kinematics/scripts/gen_collision_primitives.py and gen_collision_pairs.py.
+#
+# Thresholds and check_* are live-tunable:
+#   ros2 param set /collision_monitor predictive_distance 0.05
+
+/**:
+  ros__parameters:
+
+    urdf_file: ""
+    collision_pairs_file: ""
+    obstacles_file: ""
+
+    # Measured feedback is the safer input; /joint_states from ik_node is the
+    # commanded pose.
+    joint_states_topic: "/joint_states"
+    rate_hz: 50.0
+
+    check_self: true
+    check_environment: true
+
+    # No joint_states for this long (s) -> every joint predictive-flagged,
+    # joint_distance nan.
+    joint_state_timeout: 0.5
+
+    # Per-joint guards (/collision/predictive_guard, /collision/reactive_guard).
+    # reactive:   a pair within contact_distance now (collided).
+    #             RViz: red spheres at the contact points.
+    # predictive: a pair within predictive_distance at the pose
+    #             prediction_horizon seconds ahead at current joint velocity.
+    #             RViz: yellow spheres + line across the remaining gap.
+    contact_distance: 0.0
+    predictive_distance: 0.03
+    prediction_horizon: 0.3
+    velocity_filter: 0.5
+
+    # placo's world frame is the URDF root link ("world", 0.22 m below
+    # base_link), so markers must be drawn in it.
+    marker_frame: "world"

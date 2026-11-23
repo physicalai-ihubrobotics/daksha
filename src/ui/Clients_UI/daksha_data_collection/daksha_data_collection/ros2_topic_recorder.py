@@ -1,0 +1,1207 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Dict, Optional
+
+# Keep the recorder on the same isolated ROS graph as the web UI and replay.
+os.environ['ROS_DOMAIN_ID'] = '22'
+
+import cv2
+import numpy as np
+import rclpy
+import yaml
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import CompressedImage, Image, JointState
+from std_msgs.msg import String
+from std_srvs.srv import Trigger
+from daksha_msgs.srv import StartRecord
+
+
+def _default_config_path() -> str:
+    """Prefer the installed share/ copy (ros2 run/launch); fall back to the
+    source-tree config/ next to this package when run straight from source
+    (e.g. python3 ros2_topic_recorder.py during development)."""
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        return str(Path(get_package_share_directory("daksha_data_collection")) / "config" / "config.yaml")
+    except Exception:
+        return str(Path(__file__).resolve().parent.parent / "config" / "config.yaml")
+
+
+def _acquire_singleton_lock(name: str):
+    """Refuse to start a second instance of this node.
+
+    A stray duplicate leaves two /recorder/start service servers and two
+    /recorder/ui_status publishers on the ROS graph at once -- the UI then
+    flip-flops between whichever instance's status message arrived last,
+    and Start Record can silently get serviced by the stale one. Unlike
+    web_data_management_ui (naturally deduped by its fixed HTTP port), this
+    node has no OS resource to collide on, so we take an explicit lock.
+    """
+    import fcntl
+    lock_path = f"/tmp/daksha_{name}.lock"
+    lock_file = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(
+            f"Another {name} instance is already running (lock held on {lock_path}). "
+            f"Kill it before starting a new one -- exiting.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    lock_file.write(str(os.getpid()))
+    lock_file.flush()
+    return lock_file  # keep referenced for the process lifetime; GC would release the flock
+
+
+def _default_dataset_dir() -> str:
+    """Fallback used only if config.yaml has no dataset.root_dir at all —
+    the config value is the real source of truth (see config/config.yaml)."""
+    return str(Path("~/daksha/vla_dataset").expanduser())
+
+
+def _load_validate_dataset_module():
+    """validate_dataset.py lives in Clients_UI/validation/ — a plain script
+    folder, not a ROS package (no package.xml/CMakeLists, nothing installed
+    to any share/ dir) — shared as-is with the standalone validation_ui.py.
+    Only resolvable via a source-relative walk-up from this file's real
+    location, same as project.config.yaml's old cross-package resolution:
+    works when this file resolves back to the source tree (true for
+    --symlink-install), has no path back to it at all for a real,
+    non-symlink install. Returns None (never raises) if it can't be found or
+    imported, so a missing/broken validator degrades to "no live check"
+    rather than taking the whole recorder node down.
+    """
+    candidate = Path(__file__).resolve().parent.parent.parent / "validation"
+    if not (candidate / "validate_dataset.py").is_file():
+        return None
+    if str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
+    try:
+        import validate_dataset as vd
+        return vd
+    except Exception:
+        return None
+
+
+vd = _load_validate_dataset_module()
+
+
+try:
+    from .config import CameraSpec, V3DatasetConfig, V3FeatureSpec
+    from .recorder import EpisodeRejected, V3DatasetRecorder
+except ImportError:
+    from config import CameraSpec, V3DatasetConfig, V3FeatureSpec
+    from recorder import EpisodeRejected, V3DatasetRecorder
+
+
+ROS2_TOPIC_CONFIG = "ros2_topics.json"
+
+# Empirically fit on this rig (bi_arm_daksha/ros2_topic_recorder.py, 30
+# episodes / 5922 rows): a leader arm's raw reading tracks its *cross-body*
+# follower's observation.state (leader_right <-> follower_left,
+# leader_left <-> follower_right) with these per-joint signs and <0.3 deg
+# offset (offset treated as noise, not applied). joint_1 and joint_3 have a
+# genuine mirrored axis convention between arms; the rest do not. Order is
+# [joint_1..joint_7, gripper], matching this rig's fixed 8-DOF-per-arm joint
+# layout (see follower_*_joint_names in ros2_topics.json).
+JOINT_SIGN_CORRECTION = np.array([-1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+# joint_5 (index 4) is NOT symmetric like joint_1/joint_3 -- verified against
+# real teleop motion (see bi_arm_daksha/ros2_topic_recorder.py for the full
+# derivation): it needs a different sign per leader arm, applied as a
+# post-copy override rather than folding into JOINT_SIGN_CORRECTION, which
+# would fix one arm's joint_5 by breaking the other's.
+JOINT5_INDEX = 4
+LEADER_RIGHT_JOINT5_SIGN = -1.0
+LEADER_LEFT_JOINT5_SIGN = 1.0
+
+# joint_6 (index 5) is asymmetric between arms for the same reason as joint_5:
+# leader_right -> follower_left tracks with +1 (the JOINT_SIGN_CORRECTION
+# default), but leader_left -> follower_right is mirrored and needs -1.
+# Verified against this rig's recordings: with joint_6 left at +1, action and
+# observation.state disagreed by ~2.73 deg on this channel with opposite signs
+# (action +1.41 deg vs observation.state -1.33 deg); the per-arm override below
+# aligns them to within the <0.3 deg offset noise. Applied as a post-copy
+# override like joint_5, not folded into JOINT_SIGN_CORRECTION, which would fix
+# the left arm's joint_6 by breaking the right's.
+JOINT6_INDEX = 5
+LEADER_RIGHT_JOINT6_SIGN = 1.0
+LEADER_LEFT_JOINT6_SIGN = -1.0
+
+
+def _joint_array(values) -> np.ndarray:
+    return np.asarray(values, dtype=np.float32).reshape(-1)
+
+
+def _joint_names(msg: Optional[JointState]) -> list[str]:
+    if msg is None:
+        return []
+    return [str(name) for name in list(msg.name or [])]
+
+
+def _raw_image_msg_to_bgr(msg: Image) -> np.ndarray:
+    height = int(msg.height)
+    width = int(msg.width)
+    encoding = str(msg.encoding).lower()
+    
+    if "bgra" in encoding or "rgba" in encoding or "8uc4" in encoding:
+        channels = 4
+    elif "mono" in encoding or "8uc1" in encoding or "mono8" in encoding:
+        channels = 1
+    else:
+        channels = 3
+        
+    row_bytes = int(msg.step) if int(msg.step) > 0 else width * channels
+    array = np.frombuffer(msg.data, dtype=np.uint8)
+    image = array.reshape(height, row_bytes)[:, : width * channels]
+    
+    if channels == 1:
+        mono = image.reshape(height, width)
+        return cv2.cvtColor(mono, cv2.COLOR_GRAY2BGR)
+    elif channels == 4:
+        image_4c = image.reshape(height, width, 4)
+        if "bgra" in encoding:
+            return cv2.cvtColor(image_4c, cv2.COLOR_BGRA2BGR)
+        else: # rgba
+            return cv2.cvtColor(image_4c, cv2.COLOR_RGBA2BGR)
+    else: # channels == 3
+        image_3c = image.reshape(height, width, 3)
+        if "rgb" in encoding:
+            return cv2.cvtColor(image_3c, cv2.COLOR_RGB2BGR)
+        else:
+            return image_3c
+
+
+def _write_ros2_topic_config(root: Path, payload: dict) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / ROS2_TOPIC_CONFIG).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+class Ros2V3TopicRecorder(Node):
+    def __init__(self, config_path: str) -> None:
+        super().__init__("custom_v3_topic_recorder")
+        self.config_path = config_path
+
+        with open(config_path, "r") as f:
+            self.config = yaml.safe_load(f)
+
+        dataset_cfg = self.config.get("dataset", {})
+        record_cfg = self.config.get("recording", {})
+        topics_cfg = self.config.get("recording_topics", self.config.get("topics", {}))
+
+        self.dataset_name = dataset_cfg.get("dataset_name", "task1")
+        self.repo_id = f"local/{self.dataset_name}"
+        self.root_dir = (
+            Path(dataset_cfg.get("root_dir", _default_dataset_dir()))
+            .expanduser()
+            .resolve()
+            / self.dataset_name
+        )
+        self.task = dataset_cfg.get("task", "task1")
+        self.prompt = dataset_cfg.get("prompt", "")
+        self.robot_type = dataset_cfg.get("robot_type", "bimanual_leader_follower")
+
+        self.record_hz = float(record_cfg.get("record_hz", 10.0))
+        self.episode_len = int(record_cfg.get("episode_len", 250))
+        self.max_episodes = int(record_cfg.get("max_episodes", 1))
+        self.inter_episode_delay = float(record_cfg.get("inter_episode_delay", 5.0))
+        self.fps = int(record_cfg.get("fps", 10))
+        self.width = int(record_cfg.get("width", 320))
+        self.height = int(record_cfg.get("height", 240))
+        self.disable_videos = bool(record_cfg.get("disable_videos", False))
+        self.vcodec = str(record_cfg.get("vcodec", "h264"))
+        self.disable_streaming_encoding = bool(record_cfg.get("disable_streaming_encoding", False))
+        self.leader_dim_override = record_cfg.get("leader_dim")
+        self.follower_dim_override = record_cfg.get("follower_dim")
+        self.action_dim_override = record_cfg.get("action_dim")
+        self.include_follower_state_duplicate = bool(
+            record_cfg.get("include_follower_state_duplicate", False)
+        )
+        self.action_from_next_state = bool(
+            record_cfg.get("action_from_next_state", False)
+        )
+        # A step is only stored when every camera and joint stream has
+        # delivered a message within this many seconds -- otherwise a frozen
+        # camera or dropped arm would be recorded as if it were live.
+        self.max_input_age = float(record_cfg.get("max_input_age_sec", 0.5))
+        self._rx_time: Dict[str, float] = {}
+        self.skipped_steps = 0
+
+        # Gripper sign is not a fixed hardware constant like the other 6
+        # joints in JOINT_SIGN_CORRECTION -- it has been observed to flip
+        # between recording sessions (e.g. after the leader gripper sensor
+        # is reconnected/re-zeroed), while staying stable within a session.
+        # So it's config-driven rather than hardcoded; reloaded on every
+        # /recorder/start in case the operator edited config.yaml between
+        # sessions. If a session's action gripper channel moves opposite to
+        # observation.state's, flip the matching sign in config.yaml.
+        self.leader_right_gripper_sign = float(record_cfg.get("leader_right_gripper_sign", -1.0))
+        self.leader_left_gripper_sign = float(record_cfg.get("leader_left_gripper_sign", -1.0))
+        self._rebuild_action_signs()
+
+        self.camera_topics: Dict[str, str] = topics_cfg.get("camera_topics", {})
+        self.leader_left_topic = topics_cfg.get("leader_topic_left", "/leader/left_joint_states")
+        self.leader_right_topic = topics_cfg.get("leader_topic_right", "/leader/right_joint_states")
+        self.follower_left_topic = topics_cfg.get("follower_topic_left", "/LeftArmSystem_ordered_joint_states")
+        self.follower_right_topic = topics_cfg.get("follower_topic_right", "/RightArmSystem_ordered_joint_states")
+        self.follower_cmd_left_topic = topics_cfg.get("follower_cmd_topic_left", "/left_arm_controller/commands")
+        self.follower_cmd_right_topic = topics_cfg.get("follower_cmd_topic_right", "/right_arm_controller/commands")
+        self.follower_cmd_topic = topics_cfg.get("joint_cmd_topic", topics_cfg.get("follower_cmd_topic", ""))
+        if not self.follower_cmd_topic and self.follower_cmd_left_topic == self.follower_cmd_right_topic and self.follower_cmd_left_topic:
+            self.follower_cmd_topic = self.follower_cmd_left_topic
+
+        # --- State ---
+        # Initialize as None so we block recording until actual topics are publishing.
+        self.latest_leader_left: Optional[JointState] = None
+        self.latest_leader_right: Optional[JointState] = None
+        self.latest_follower_left: Optional[JointState] = None
+        self.latest_follower_right: Optional[JointState] = None
+
+        # Reference joint name lists (learned from first received messages)
+        self.reference_leader_left_joint_names: list[str] = []
+        self.reference_leader_right_joint_names: list[str] = []
+        self.reference_follower_left_joint_names: list[str] = []
+        self.reference_follower_right_joint_names: list[str] = []
+
+        self._warned_keys: set[str] = set()
+        self.camera_subs: Dict[str, Any] = {}
+        self._camera_topic_by_key: Dict[str, str] = {}
+        self.current_images: Dict[str, Optional[np.ndarray]] = {
+            key: None for key in self.camera_topics
+        }
+
+        self.recorder: Optional[V3DatasetRecorder] = None
+        self.record_timer = None
+        self.restart_timer = None
+        self.step_count = 0
+        self.episodes_recorded = 0
+        self.last_wait_log_ns = 0
+        self.is_finalized = False
+        self.stop_requested = False
+        self.control_start_requested = False
+
+        # --- Post-save validation (validate_dataset.check_episode) ---
+        # Thresholds/flags only -- check_episode() never reads args.dataset,
+        # so these don't need rebuilding when root_dir changes mid-session.
+        self._validation_args = vd.build_parser().parse_args(["."]) if vd else None
+        if vd is None:
+            self.get_logger().warn(
+                "validate_dataset module not found (Clients_UI/validation/ "
+                "unreachable) -- episodes will be saved without the post-save "
+                "validation check."
+            )
+        self.last_episode_validation: Optional[dict] = None
+        self.validation_blocked = False
+
+        # --- Subscriptions ---
+        self.topics_to_check: list[str] = []
+        self._sub_leader_left = None
+        self._sub_leader_right = None
+        self._sub_follower_left = None
+        self._sub_follower_right = None
+
+        self._set_joint_subscription("_sub_leader_left", "leader_left_topic",
+                                      self.leader_left_topic, self._leader_left_callback)
+        self._set_joint_subscription("_sub_leader_right", "leader_right_topic",
+                                      self.leader_right_topic, self._leader_right_callback)
+        self._set_joint_subscription("_sub_follower_left", "follower_left_topic",
+                                      self.follower_left_topic, self._follower_left_callback)
+        self._set_joint_subscription("_sub_follower_right", "follower_right_topic",
+                                      self.follower_right_topic, self._follower_right_callback)
+
+        for camera_key, topic in self.camera_topics.items():
+            self._create_camera_subscription(camera_key, topic)
+            self.topics_to_check.append(topic)
+
+        # --- Services ---
+        self.srv_start = self.create_service(StartRecord, "/recorder/start", self._handle_start)
+        self.srv_stop = self.create_service(Trigger, "/recorder/stop", self._handle_stop)
+        self.srv_ack_validation = self.create_service(
+            Trigger, "/recorder/acknowledge_validation", self._handle_acknowledge_validation
+        )
+
+        # --- UI Status Publisher ---
+        self.status_pub = self.create_publisher(String, '/recorder/ui_status', 10)
+        self.create_timer(1.0, self._publish_status)
+
+        self.check_timer = self.create_timer(0.5, self._check_topics_ready)
+        self.get_logger().info(f"Recorder initialized. Dataset path: {self.root_dir}")
+
+    # ── Status Publisher ──────────────────────────────────────────────────
+
+    def _publish_status(self) -> None:
+        try:
+            status = {
+                "recording": self.record_timer is not None,
+                # True from Start until Stop / max_episodes -- stays True
+                # through the inter-episode delay, so the UI doesn't mistake
+                # the gap between auto-restarted episodes for a stop.
+                "session_active": self.control_start_requested and not self.stop_requested,
+                "step_count": self.step_count,
+                "max_steps": self.episode_len,
+                "record_hz": self.record_hz,
+                "episodes_recorded": self.episodes_recorded,
+                "max_episodes": self.max_episodes,
+                "camera_topics": self.camera_topics,
+                "dataset_name": self.dataset_name,
+                "validation_blocked": self.validation_blocked,
+                "last_episode_validation": self.last_episode_validation,
+            }
+            msg = String()
+            msg.data = json.dumps(status)
+            self.status_pub.publish(msg)
+        except Exception as e:
+            self.get_logger().error(f"Error publishing status: {e}")
+
+    # ── Callbacks ──────────────────────────────────────────────────────────
+
+    def _leader_left_callback(self, msg: JointState) -> None:
+        self.latest_leader_left = msg
+        self._rx_time["leader_left"] = time.monotonic()
+        self._update_joint_name_reference()
+
+    def _leader_right_callback(self, msg: JointState) -> None:
+        self.latest_leader_right = msg
+        self._rx_time["leader_right"] = time.monotonic()
+        self._update_joint_name_reference()
+
+    def _follower_left_callback(self, msg: JointState) -> None:
+        self.latest_follower_left = msg
+        self._rx_time["follower_left"] = time.monotonic()
+        self._update_joint_name_reference()
+
+    def _follower_right_callback(self, msg: JointState) -> None:
+        self.latest_follower_right = msg
+        self._rx_time["follower_right"] = time.monotonic()
+        self._update_joint_name_reference()
+
+    def _set_joint_subscription(self, sub_attr: str, topic_attr: str, new_topic: str, callback) -> None:
+        """(Re)point a leader/follower joint subscription at `new_topic`.
+
+        Camera subscriptions already get recreated on every /recorder/start
+        call when their topic changes (see _create_camera_subscription in
+        the reload block below); joint subscriptions used to be wired up
+        once in __init__ and never touched again, so picking a different
+        leader/follower topic in the UI silently kept recording from the
+        old one. This makes joint topics reconfigurable the same way.
+        """
+        if new_topic == getattr(self, topic_attr, "") and getattr(self, sub_attr) is not None:
+            return
+        old_sub = getattr(self, sub_attr)
+        if old_sub is not None:
+            self.destroy_subscription(old_sub)
+        setattr(self, topic_attr, new_topic)
+        setattr(
+            self, sub_attr,
+            self.create_subscription(JointState, new_topic, callback, 10) if new_topic else None,
+        )
+        # Drop the stale message from the old topic -- otherwise
+        # _all_topics_ready() would treat leftover data from a topic we're
+        # no longer subscribed to as proof the new one is already live.
+        setattr(self, "latest_" + sub_attr[len("_sub_"):], None)
+
+    # ── Services ───────────────────────────────────────────────────────────
+
+    def _handle_start(self, request, response):
+        self.get_logger().info("Service called to START recording.")
+        if self.record_timer is not None:
+            response.success = False
+            response.message = "Recording is already in progress."
+            return response
+
+        # --- Reload configuration YAML file to detect updated tasks and prompts ---
+        try:
+            with open(self.config_path, "r") as f:
+                self.config = yaml.safe_load(f) or {}
+            dataset_cfg = self.config.get("dataset", {})
+            self.task = dataset_cfg.get("task", self.task)
+            self.prompt = dataset_cfg.get("prompt", self.prompt)
+            
+            record_cfg = self.config.get("recording", {})
+            self.fps = int(record_cfg.get("fps", self.fps))
+            self.leader_right_gripper_sign = float(
+                record_cfg.get("leader_right_gripper_sign", self.leader_right_gripper_sign)
+            )
+            self.leader_left_gripper_sign = float(
+                record_cfg.get("leader_left_gripper_sign", self.leader_left_gripper_sign)
+            )
+            self._rebuild_action_signs()
+            self.action_from_next_state = bool(
+                record_cfg.get("action_from_next_state", self.action_from_next_state)
+            )
+
+            # Reload and update camera + joint topics dynamically!
+            topics_cfg = self.config.get("recording_topics", self.config.get("topics", {}))
+            new_camera_topics = topics_cfg.get("camera_topics", {})
+
+            # 1. Remove cameras that are no longer present
+            for old_key in list(self.camera_topics.keys()):
+                if old_key not in new_camera_topics:
+                    self._remove_camera_subscription(old_key)
+
+            # 2. Add or update subscriptions
+            self.camera_topics = new_camera_topics
+            self.topics_to_check = []
+
+            # Re-point joint subscriptions if the operator picked different
+            # leader/follower topics in the UI since this node started.
+            # `or` (not dict.get's default=) deliberately treats an empty
+            # string the same as an absent key: the web UI's topic-selector
+            # dropdowns aren't wired up (getVal() returns '' when the
+            # element doesn't exist), so an empty string here means "nothing
+            # was picked", not "the operator explicitly wants no topic" --
+            # it must never blank out an already-good subscription.
+            self._set_joint_subscription(
+                "_sub_leader_left", "leader_left_topic",
+                topics_cfg.get("leader_topic_left") or self.leader_left_topic,
+                self._leader_left_callback,
+            )
+            self._set_joint_subscription(
+                "_sub_leader_right", "leader_right_topic",
+                topics_cfg.get("leader_topic_right") or self.leader_right_topic,
+                self._leader_right_callback,
+            )
+            self._set_joint_subscription(
+                "_sub_follower_left", "follower_left_topic",
+                topics_cfg.get("follower_topic_left") or self.follower_left_topic,
+                self._follower_left_callback,
+            )
+            self._set_joint_subscription(
+                "_sub_follower_right", "follower_right_topic",
+                topics_cfg.get("follower_topic_right") or self.follower_right_topic,
+                self._follower_right_callback,
+            )
+            self.follower_cmd_left_topic = topics_cfg.get("follower_cmd_topic_left") or self.follower_cmd_left_topic
+            self.follower_cmd_right_topic = topics_cfg.get("follower_cmd_topic_right") or self.follower_cmd_right_topic
+
+            # Rebuild topics_to_check with basic joint/cmd topics
+            if self.leader_left_topic: self.topics_to_check.append(self.leader_left_topic)
+            if self.leader_right_topic: self.topics_to_check.append(self.leader_right_topic)
+            if self.follower_left_topic: self.topics_to_check.append(self.follower_left_topic)
+            if self.follower_right_topic: self.topics_to_check.append(self.follower_right_topic)
+
+            for camera_key, topic in self.camera_topics.items():
+                self._create_camera_subscription(camera_key, topic)
+                self.topics_to_check.append(topic)
+                if camera_key not in self.current_images:
+                    self.current_images[camera_key] = None
+            
+            # Recompute base directory from reloaded config if the request didn't override it
+            if not request.dataset_name:
+                self.root_dir = (
+                    Path(dataset_cfg.get("root_dir", _default_dataset_dir()))
+                    .expanduser()
+                    .resolve()
+                    / self.dataset_name
+                )
+        except Exception as e:
+            self.get_logger().error(f"Failed to reload config.yaml in start handler: {e}")
+
+        if request.dataset_name:
+            self.dataset_name = request.dataset_name
+            self.repo_id = f"local/{self.dataset_name}"
+            dataset_cfg = self.config.get("dataset", {})
+            self.root_dir = (
+                Path(dataset_cfg.get("root_dir", _default_dataset_dir()))
+                .expanduser()
+                .resolve()
+                / self.dataset_name
+            )
+        if request.episode_length > 0:
+            self.episode_len = request.episode_length
+        if request.record_hz > 0.0:
+            self.record_hz = float(request.record_hz)
+        if request.max_episodes > 0:
+            self.max_episodes = request.max_episodes
+
+        self.control_start_requested = True
+        self.stop_requested = False
+        # max_episodes counts per Start press, not per node lifetime.
+        self.episodes_recorded = 0
+        self.is_finalized = False
+        self.last_episode_validation = None
+        self.validation_blocked = False
+
+        if self._all_topics_ready():
+            self._start_episode()
+            response.success = True
+            response.message = "Recording started successfully."
+        else:
+            response.success = False
+            response.message = (
+                f"Failed to start recording. Offline topics: {', '.join(self._missing_inputs())}"
+            )
+        return response
+
+    def _handle_stop(self, request, response):
+        self.get_logger().info("Service called to STOP recording.")
+        self.stop_requested = True
+        self.control_start_requested = False
+        if self.record_timer is not None:
+            self._finish_episode()
+        response.success = True
+        response.message = "Recording stopped."
+        return response
+
+    # ── Camera subscriptions ───────────────────────────────────────────────
+
+    def _create_camera_subscription(self, camera_key: str, topic: str) -> None:
+        """(Re)point a camera subscription at `topic`. Skips the actual
+        destroy+recreate when the topic hasn't changed -- /recorder/start
+        calls this for every configured camera on every single click (same
+        as _set_joint_subscription used to for leader/follower topics), and
+        needlessly tearing down a live subscription forces DDS through a
+        rediscovery/QoS-rematch cycle right before _all_topics_ready() is
+        checked synchronously in that same call. Without this guard, a
+        camera that was already receiving frames fine can show up as
+        "offline" on the very next Start click for no reason."""
+        if topic == self._camera_topic_by_key.get(camera_key) and camera_key in self.camera_subs:
+            return
+        if camera_key in self.camera_subs:
+            try:
+                self.destroy_subscription(self.camera_subs[camera_key])
+            except Exception:
+                pass
+
+        if topic.rstrip("/").endswith("/compressed"):
+            sub = self.create_subscription(
+                CompressedImage,
+                topic,
+                self._make_compressed_image_callback(camera_key),
+                qos_profile_sensor_data,
+            )
+        else:
+            sub = self.create_subscription(
+                Image,
+                topic,
+                self._make_raw_image_callback(camera_key),
+                qos_profile_sensor_data,
+            )
+        self.camera_subs[camera_key] = sub
+        self._camera_topic_by_key[camera_key] = topic
+        # Drop any stale frame from the old subscription -- otherwise
+        # _all_topics_ready() would treat leftover data from a topic we're
+        # no longer subscribed to as proof the new one is already live
+        # (same reasoning as _set_joint_subscription's reset).
+        self.current_images[camera_key] = None
+
+    def _remove_camera_subscription(self, camera_key: str) -> None:
+        if camera_key in self.camera_subs:
+            try:
+                self.destroy_subscription(self.camera_subs[camera_key])
+            except Exception:
+                pass
+            del self.camera_subs[camera_key]
+        self._camera_topic_by_key.pop(camera_key, None)
+        if camera_key in self.current_images:
+            del self.current_images[camera_key]
+
+    def _make_compressed_image_callback(self, camera_key: str):
+        def callback(msg: CompressedImage) -> None:
+            self.current_images[camera_key] = msg
+            self._rx_time[f"camera:{camera_key}"] = time.monotonic()
+        return callback
+
+    def _make_raw_image_callback(self, camera_key: str):
+        def callback(msg: Image) -> None:
+            self.current_images[camera_key] = msg
+            self._rx_time[f"camera:{camera_key}"] = time.monotonic()
+        return callback
+
+    # ── Joint name tracking (from reference) ──────────────────────────────
+
+    def _warn_once(self, key: str, message: str) -> None:
+        if key in self._warned_keys:
+            return
+        self._warned_keys.add(key)
+        self.get_logger().warn(message)
+
+    def _update_reference_names(
+        self,
+        msg: Optional[JointState],
+        reference_names: list[str],
+        stream_label: str,
+    ) -> bool:
+        names = _joint_names(msg)
+        if names and not reference_names:
+            reference_names[:] = names
+            return True
+        if names and reference_names and names != reference_names:
+            self._warn_once(
+                f"{stream_label}_joint_order_changed",
+                f"{stream_label} joint name/order changed. Recorder will remap by name.",
+            )
+        return False
+
+    def _update_joint_name_reference(self) -> None:
+        changed = any([
+            self._update_reference_names(self.latest_leader_left, self.reference_leader_left_joint_names, "leader_left"),
+            self._update_reference_names(self.latest_leader_right, self.reference_leader_right_joint_names, "leader_right"),
+            self._update_reference_names(self.latest_follower_left, self.reference_follower_left_joint_names, "follower_left"),
+            self._update_reference_names(self.latest_follower_right, self.reference_follower_right_joint_names, "follower_right"),
+        ])
+        if changed:
+            self._write_topic_config()
+
+    def _combined_joint_names(self, left_names: list[str], right_names: list[str]) -> list[str]:
+        """Stored as left-then-right to match recording order (matches the
+        reference bi_arm_daksha recorder's LEFT_JOINT_NAMES + RIGHT_JOINT_NAMES)."""
+        return [f"left/{n}" for n in left_names] + [f"right/{n}" for n in right_names]
+
+    def _leader_joint_names(self) -> list[str]:
+        return self._combined_joint_names(
+            self.reference_leader_left_joint_names,
+            self.reference_leader_right_joint_names,
+        )
+
+    def _follower_joint_names(self) -> list[str]:
+        return self._combined_joint_names(
+            self.reference_follower_left_joint_names,
+            self.reference_follower_right_joint_names,
+        )
+
+    def _write_topic_config(self) -> None:
+        payload = {
+            "repo_id": self.repo_id,
+            "fps": self.fps,
+            # Nested {"left":.., "right":..} shape, matching the reference
+            # bi_arm_daksha recorder's ros2_topics.json.
+            "leader_state_topic": {"left": self.leader_left_topic, "right": self.leader_right_topic},
+            "follower_state_topic": {"left": self.follower_left_topic, "right": self.follower_right_topic},
+            "follower_cmd_topic": {"left": self.follower_cmd_left_topic, "right": self.follower_cmd_right_topic},
+            "camera_topics": self.camera_topics,
+            "joint_names": {
+                "leader_left": self.reference_leader_left_joint_names,
+                "leader_right": self.reference_leader_right_joint_names,
+                "follower_left": self.reference_follower_left_joint_names,
+                "follower_right": self.reference_follower_right_joint_names,
+            },
+            # This recorder always concatenates state/action vectors
+            # left-arm-first then right-arm (see _combined_joint_names),
+            # matching the reference bi_arm_daksha recorder -- spelled out
+            # explicitly so ros2_topic_replay.py doesn't have to infer it.
+            "state_concat_order": ["left", "right"],
+            # Kept for ros2_topic_replay.py, which looks these up as flat
+            # top-level keys.
+            "leader_left_topic": self.leader_left_topic,
+            "leader_right_topic": self.leader_right_topic,
+            "follower_left_topic": self.follower_left_topic,
+            "follower_right_topic": self.follower_right_topic,
+            "follower_cmd_msg_type": "joint_state",
+            "leader_state_joint_names": self._leader_joint_names(),
+            "follower_state_joint_names": self._follower_joint_names(),
+            # `action` is remapped into follower left/right order (see
+            # _remap_action), so its names follow that convention rather
+            # than the raw leader order.
+            "action_joint_names": self._follower_joint_names(),
+            "leader_left_joint_names": self.reference_leader_left_joint_names,
+            "leader_right_joint_names": self.reference_leader_right_joint_names,
+            "follower_left_joint_names": self.reference_follower_left_joint_names,
+            "follower_right_joint_names": self.reference_follower_right_joint_names,
+            "action_convention": "follower_left_right_sign_corrected",
+            "leader_state_convention": "raw_leader_device_order",
+            "leader_right_gripper_sign": self.leader_right_gripper_sign,
+            "leader_left_gripper_sign": self.leader_left_gripper_sign,
+        }
+        _write_ros2_topic_config(self.root_dir, payload)
+
+    # ── Joint vector building (from reference) ─────────────────────────────
+
+    def _ordered_joint_vector(
+        self, msg: JointState, reference_names: list[str], stream_label: str
+    ) -> np.ndarray:
+        """Build a fixed-order vector using reference joint names.
+
+        Looks up each reference name in the incoming message by name so that
+        the order in the dataset is always stable regardless of what order the
+        robot publishes joints.
+        """
+        if not reference_names:
+            return _joint_array(msg.position)
+
+        names = _joint_names(msg)
+        positions = list(msg.position)
+        if names and len(names) == len(positions):
+            position_by_name = {str(n): float(p) for n, p in zip(names, positions)}
+            missing = [n for n in reference_names if n not in position_by_name]
+            if not missing:
+                return np.asarray(
+                    [position_by_name[n] for n in reference_names], dtype=np.float32
+                ).reshape(-1)
+            self._warn_once(
+                f"{stream_label}_missing_joint_names",
+                f"{stream_label} missing reference joints; falling back to raw order.",
+            )
+        elif names and len(names) != len(positions):
+            self._warn_once(
+                f"{stream_label}_len_mismatch",
+                f"{stream_label} has {len(names)} names but {len(positions)} positions; falling back.",
+            )
+        return _joint_array(positions)
+
+    def _rebuild_action_signs(self) -> None:
+        """(Re)build the per-arm sign vectors used by _remap_action to turn a
+        leader arm's raw reading into its cross-body follower's action
+        target. Call whenever leader_{right,left}_gripper_sign changes."""
+        self.action_sign_right = JOINT_SIGN_CORRECTION.copy()
+        self.action_sign_right[-1] = self.leader_right_gripper_sign
+        self.action_sign_right[JOINT5_INDEX] = LEADER_RIGHT_JOINT5_SIGN
+        self.action_sign_right[JOINT6_INDEX] = LEADER_RIGHT_JOINT6_SIGN
+
+        self.action_sign_left = JOINT_SIGN_CORRECTION.copy()
+        self.action_sign_left[-1] = self.leader_left_gripper_sign
+        self.action_sign_left[JOINT5_INDEX] = LEADER_LEFT_JOINT5_SIGN
+        self.action_sign_left[JOINT6_INDEX] = LEADER_LEFT_JOINT6_SIGN
+
+    def _remap_action(self, leader_left_vec: np.ndarray, leader_right_vec: np.ndarray) -> np.ndarray:
+        """Remap raw leader readings into the follower's own left/right +
+        sign convention (leader_right -> follower_left target, leader_left
+        -> follower_right target), matching this rig's left-then-right
+        storage order (and the reference bi_arm_daksha recorder's action
+        construction exactly) so action lines up index-for-index with
+        observation.state, and so replaying `action` onto
+        follower_cmd_left/right drives the correct arm."""
+        if (
+            leader_left_vec.shape[0] != JOINT_SIGN_CORRECTION.shape[0]
+            or leader_right_vec.shape[0] != JOINT_SIGN_CORRECTION.shape[0]
+        ):
+            self._warn_once(
+                "action_sign_dim_mismatch",
+                f"Leader arm dim != {JOINT_SIGN_CORRECTION.shape[0]}; recording action as "
+                "raw leader readings without cross-arm sign correction.",
+            )
+            return np.concatenate([leader_left_vec, leader_right_vec]).astype(np.float32)
+        return np.concatenate(
+            [self.action_sign_right * leader_right_vec, self.action_sign_left * leader_left_vec]
+        ).astype(np.float32)
+
+    # ── Topic readiness ────────────────────────────────────────────────────
+
+    def _all_topics_ready(self) -> bool:
+        if self.latest_leader_left is None: return False
+        if self.latest_leader_right is None: return False
+        if self.latest_follower_left is None: return False
+        if self.latest_follower_right is None: return False
+        return all(f is not None for f in self.current_images.values())
+
+    def _stale_inputs(self) -> list[str]:
+        """Streams whose latest message is older than max_input_age."""
+        if self.max_input_age <= 0:
+            return []
+        now = time.monotonic()
+        keys = ["leader_left", "leader_right", "follower_left", "follower_right"]
+        keys += [f"camera:{k}" for k in self.current_images]
+        return [
+            f"{k} ({now - self._rx_time[k]:.2f}s old)" if k in self._rx_time else f"{k} (never)"
+            for k in keys
+            if now - self._rx_time.get(k, float("-inf")) > self.max_input_age
+        ]
+
+    def _missing_inputs(self) -> list[str]:
+        missing = []
+        if self.latest_leader_left is None: missing.append(f"leader_left:{self.leader_left_topic}")
+        if self.latest_leader_right is None: missing.append(f"leader_right:{self.leader_right_topic}")
+        if self.latest_follower_left is None: missing.append(f"follower_left:{self.follower_left_topic}")
+        if self.latest_follower_right is None: missing.append(f"follower_right:{self.follower_right_topic}")
+        for key, frame in self.current_images.items():
+            if frame is None:
+                missing.append(f"camera:{key}")
+        return missing
+
+    # ── Dataset config ─────────────────────────────────────────────────────
+
+    def _build_v3_config(self) -> V3DatasetConfig:
+        self._update_joint_name_reference()
+        leader_names = self._leader_joint_names()
+        follower_names = self._follower_joint_names()
+
+        leader_dim = (
+            int(self.leader_dim_override)
+            if self.leader_dim_override is not None
+            else (len(leader_names) if leader_names else
+                  len(self.latest_leader_left.position) + len(self.latest_leader_right.position))
+        )
+        follower_dim = (
+            int(self.follower_dim_override)
+            if self.follower_dim_override is not None
+            else (len(follower_names) if follower_names else
+                  len(self.latest_follower_left.position) + len(self.latest_follower_right.position))
+        )
+        action_dim = int(self.action_dim_override) if self.action_dim_override is not None else leader_dim
+
+        cameras = [
+            CameraSpec(key=f"observation.images.{k}", width=self.width, height=self.height, role="secondary")
+            for k in self.camera_topics
+        ]
+
+        return V3DatasetConfig(
+            repo_id=self.repo_id,
+            root=self.root_dir,
+            fps=self.fps,
+            robot_type=self.robot_type,
+            cameras=cameras,
+            feature_spec=V3FeatureSpec(
+                action_dim=action_dim,
+                follower_state_dim=follower_dim,
+                leader_state_dim=leader_dim,
+                include_follower_state_duplicate=self.include_follower_state_duplicate,
+            ),
+            use_videos=not self.disable_videos,
+            vcodec=self.vcodec,
+            streaming_encoding=not self.disable_streaming_encoding,
+        )
+
+    def _ensure_recorder(self) -> V3DatasetRecorder:
+        if self.recorder is not None:
+            if Path(self.recorder.root).resolve() == Path(self.root_dir).resolve():
+                return self.recorder
+            # Operator switched dataset (new or existing) since the last
+            # episode -- close out the old one instead of writing into it.
+            self.get_logger().info(
+                f"Dataset changed: {self.recorder.root} -> {self.root_dir}"
+            )
+            self.recorder.finalize()
+            self.recorder = None
+        cfg = self._build_v3_config()
+        if (cfg.root / "meta" / "info.json").exists():
+            self.recorder = V3DatasetRecorder.resume_existing(cfg)
+        else:
+            self.recorder = V3DatasetRecorder.create_new(cfg)
+        self._write_topic_config()
+        return self.recorder
+
+    # ── Episode control ────────────────────────────────────────────────────
+
+    def _check_topics_ready(self) -> None:
+        if self.stop_requested or self.record_timer is not None or self.restart_timer is not None:
+            return
+        if not self.control_start_requested:
+            return
+        if not self._all_topics_ready():
+            now_ns = self.get_clock().now().nanoseconds
+            if now_ns - self.last_wait_log_ns >= int(2e9):
+                self.get_logger().info("Waiting for: %s" % ", ".join(self._missing_inputs()))
+                self.last_wait_log_ns = now_ns
+            return
+        self.get_logger().info("All topics ready. Starting recording.")
+        self._start_episode()
+
+    def _start_episode(self) -> None:
+        self._ensure_recorder().reload_from_disk()
+        self.step_count = 0
+        self.skipped_steps = 0
+        self.record_timer = self.create_timer(1.0 / self.record_hz, self._record_step)
+        self._publish_status()
+        self.get_logger().info(
+            f"Recording episode into {self.root_dir} (target: {self.episode_len} steps)"
+        )
+
+    def _record_step(self) -> None:
+        if self.stop_requested or self.recorder is None:
+            return
+        if not self._all_topics_ready():
+            self.get_logger().warn("Skipping step — topic(s) missing")
+            return
+        stale = self._stale_inputs()
+        if stale:
+            self.skipped_steps += 1
+            self.get_logger().warn(
+                "Skipping step — stale input(s): " + ", ".join(stale),
+                throttle_duration_sec=1.0,
+            )
+            return
+
+        frames = {}
+        for k, f in self.current_images.items():
+            if f is not None:
+                try:
+                    img_data = None
+                    if isinstance(f, np.ndarray):
+                        img_data = f.copy()
+                    elif hasattr(f, 'data') and (hasattr(f, 'format') or 'CompressedImage' in str(type(f))):
+                        # CompressedImage
+                        encoded = np.frombuffer(f.data, dtype=np.uint8)
+                        frame_bgr = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+                        if frame_bgr is not None:
+                            img_data = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                    else:
+                        # Raw Image msg
+                        frame_bgr = _raw_image_msg_to_bgr(f)
+                        img_data = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                        
+                    if img_data is not None:
+                        frames[f"observation.images.{k}"] = img_data
+                except Exception as exc:
+                    self.get_logger().warn(f"Lazy decoding failed for camera '{k}': {exc}")
+
+        missing_frames = [k for k in self.current_images if f"observation.images.{k}" not in frames]
+        if missing_frames:
+            self.skipped_steps += 1
+            self.get_logger().warn(
+                "Skipping step — undecodable frame(s): " + ", ".join(missing_frames),
+                throttle_duration_sec=1.0,
+            )
+            return
+
+        self._update_joint_name_reference()
+
+        # Build per-arm ordered vectors using reference joint names
+        leader_right_vec = self._ordered_joint_vector(
+            self.latest_leader_right, self.reference_leader_right_joint_names, "leader_right"
+        )
+        leader_left_vec = self._ordered_joint_vector(
+            self.latest_leader_left, self.reference_leader_left_joint_names, "leader_left"
+        )
+        follower_right_vec = self._ordered_joint_vector(
+            self.latest_follower_right, self.reference_follower_right_joint_names, "follower_right"
+        )
+        follower_left_vec = self._ordered_joint_vector(
+            self.latest_follower_left, self.reference_follower_left_joint_names, "follower_left"
+        )
+
+        # follower_left's joint_5 sensor reads inverted relative to the rest
+        # of the rig's sign convention (see JOINT5_INDEX above); correct it
+        # on the observation side, same as bi_arm_daksha's recorder.
+        follower_left_corrected = follower_left_vec.copy()
+        if follower_left_corrected.shape[0] > JOINT5_INDEX:
+            follower_left_corrected[JOINT5_INDEX] = -follower_left_corrected[JOINT5_INDEX]
+
+        # Concatenate left-then-right (matches the reference bi_arm_daksha
+        # recorder's ordering exactly, stored in ros2_topics.json)
+        leader_state = np.concatenate([leader_left_vec, leader_right_vec]).astype(np.float32)
+        follower_state = np.concatenate([follower_left_corrected, follower_right_vec]).astype(np.float32)
+        if self.action_from_next_state:
+            action = follower_state.copy()
+        else:
+            action = self._remap_action(leader_left_vec, leader_right_vec)
+
+        self.recorder.add_step(
+            frames_by_camera=frames,
+            action=action,
+            follower_state=follower_state,
+            leader_state=leader_state,
+            task=self.task,
+            prompt=self.prompt,
+            timestamp=self.get_clock().now().nanoseconds / 1e9,
+        )
+
+        self.step_count += 1
+        # Push status exactly on every 1-second boundary (30 Hz -> 30, 60,
+        # 90 ...; 10 Hz -> 10, 20, 30 ...) so the UI counter lands on those
+        # values instead of whatever the free-running 1 Hz timer caught.
+        steps_per_sec = max(1, int(round(self.record_hz)))
+        if self.step_count % steps_per_sec == 0 or self.step_count == self.episode_len:
+            self.get_logger().info(f"Episode buffer: {self.step_count}/{self.episode_len} steps")
+            self._publish_status()
+
+        if self.episode_len > 0 and self.step_count >= self.episode_len:
+            self._finish_episode()
+
+    def _finish_episode(self) -> None:
+        if self.record_timer is not None:
+            self.record_timer.cancel()
+            self.record_timer = None
+        if self.recorder is None:
+            return
+
+        if self.action_from_next_state and self.recorder is not None:
+            rows = self.recorder._episode_rows
+            for t in range(len(rows) - 1):
+                rows[t]["action"] = list(rows[t + 1]["observation.state"])
+            if rows:
+                rows[-1]["action"] = list(rows[-1]["observation.state"])
+
+        try:
+            self.recorder.save_episode(parallel_encoding=True)
+        except EpisodeRejected as rej:
+            # Frames / joints / timestamps didn't line up: nothing was stored.
+            # Pause like a failed validation so the operator sees why.
+            self.step_count = 0
+            self.get_logger().error(f"NOT SAVED -- {rej}")
+            self.last_episode_validation = {
+                "episode": rej.episode_index,
+                "ok": False,
+                "acknowledged": False,
+                "issues": [{"episode": rej.episode_index, "code": "episode-not-saved",
+                            "severity": "ERROR", "message": f"Not saved: {p}"}
+                           for p in rej.problems],
+            }
+            self.validation_blocked = not self.stop_requested
+            self._publish_status()
+            return
+        episode_index = self.recorder.num_episodes - 1
+        self.step_count = 0
+        self.episodes_recorded += 1
+        self._publish_status()
+        self.get_logger().info(
+            f"Saved v3 episode {episode_index} to {self.root_dir}"
+            + (f" ({self.skipped_steps} stale step(s) skipped)" if self.skipped_steps else "")
+        )
+
+        self._validate_last_episode(episode_index)
+
+        if self.max_episodes > 0 and self.episodes_recorded >= self.max_episodes:
+            self.get_logger().info("Max episodes reached. Finalizing.")
+            if not self.is_finalized:
+                self.recorder.finalize()
+                self.is_finalized = True
+            self.control_start_requested = False
+            self._publish_status()
+            return
+
+        if self.stop_requested:
+            return
+
+        if self.validation_blocked:
+            self.get_logger().error(
+                f"Recording PAUSED: episode {episode_index} failed validation. Call "
+                "/recorder/acknowledge_validation (or the UI's Acknowledge button) to continue."
+            )
+            return
+
+        delay_sec = max(0.0, float(self.inter_episode_delay))
+        if delay_sec == 0.0:
+            self._start_episode()
+            return
+
+        self.get_logger().info(f"Waiting {delay_sec:.1f}s before next episode.")
+        self.restart_timer = self.create_timer(delay_sec, self._restart_after_delay)
+
+    def _validate_last_episode(self, episode_index: int) -> None:
+        """Run validate_dataset.check_episode() against the episode that was
+        just written (save_episode() has already flushed parquet + video +
+        metadata to disk by the time this is called). Any ERROR-severity
+        issue sets validation_blocked, which _finish_episode() checks before
+        scheduling the next episode -- cleared by acknowledge_validation()."""
+        if self._validation_args is None:
+            return
+        try:
+            ds, load_issues = vd.load_dataset(self.root_dir)
+            for li in load_issues:
+                self.get_logger().warn(f"[validate] dataset: {li.message}")
+            issues, _summary = vd.check_episode(ds, episode_index, self._validation_args)
+        except Exception as e:
+            self.get_logger().error(f"Episode {episode_index} validation crashed: {e}")
+            self.last_episode_validation = {
+                "episode": episode_index,
+                "ok": False,
+                "acknowledged": False,
+                "issues": [{"episode": episode_index, "code": "validator-crash",
+                            "severity": "ERROR", "message": str(e)}],
+            }
+            self.validation_blocked = True
+            return
+
+        errors = [i for i in issues if i.severity == vd.ERROR]
+        ok = not errors
+        self.last_episode_validation = {
+            "episode": episode_index,
+            "ok": ok,
+            "acknowledged": False,
+            "issues": [i.as_dict() for i in issues],
+        }
+        if ok:
+            self.validation_blocked = False
+            if issues:
+                self.get_logger().warn(
+                    f"Episode {episode_index}: {len(issues)} warning(s) -- "
+                    + "; ".join(i.message for i in issues)
+                )
+            else:
+                self.get_logger().info(f"Episode {episode_index}: validation OK.")
+        else:
+            self.validation_blocked = True
+            self.get_logger().error(
+                f"Episode {episode_index}: {len(errors)} ERROR(s) -- "
+                + "; ".join(i.message for i in errors)
+            )
+
+    def _handle_acknowledge_validation(self, request, response):
+        """Operator confirms a validation-failed episode has been reviewed;
+        resumes the auto-restart that _finish_episode() paused for it."""
+        if not self.validation_blocked:
+            response.success = False
+            response.message = "No blocked episode to acknowledge."
+            return response
+
+        if self.last_episode_validation is not None:
+            self.last_episode_validation["acknowledged"] = True
+        self.validation_blocked = False
+        response.success = True
+        response.message = "Acknowledged. Resuming."
+
+        if self.control_start_requested and not self.stop_requested and self.record_timer is None:
+            delay_sec = max(0.0, float(self.inter_episode_delay))
+            if delay_sec == 0.0:
+                self._start_episode()
+            else:
+                self.restart_timer = self.create_timer(delay_sec, self._restart_after_delay)
+        return response
+
+    def _restart_after_delay(self) -> None:
+        if self.stop_requested:
+            return
+        if self.restart_timer is not None:
+            self.restart_timer.cancel()
+            self.restart_timer = None
+        if self.control_start_requested and self._all_topics_ready():
+            self._start_episode()
+
+    def destroy_node(self) -> bool:
+        if hasattr(self, '_destroyed') and self._destroyed:
+            return True
+        self._destroyed = True
+        if self.record_timer is not None:
+            self.record_timer.cancel()
+            self.record_timer = None
+        if self.restart_timer is not None:
+            self.restart_timer.cancel()
+            self.restart_timer = None
+        if self.recorder is not None:
+            try:
+                if self.step_count > 0:
+                    try:
+                        self.recorder.save_episode(parallel_encoding=True)
+                        self._validate_last_episode(self.recorder.num_episodes - 1)
+                    except EpisodeRejected as rej:
+                        self.get_logger().error(f"NOT SAVED on shutdown -- {rej}")
+                if not self.is_finalized:
+                    self.recorder.finalize()
+            finally:
+                self.recorder = None
+        return super().destroy_node()
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Record ROS2 data using config file (service-based)")
+    parser.add_argument("--config", default=_default_config_path())
+    return parser
+
+
+def main() -> None:
+    _lock = _acquire_singleton_lock("ros2_topic_recorder")
+    parser = build_arg_parser()
+    args, _ = parser.parse_known_args()
+    rclpy.init()
+    node = Ros2V3TopicRecorder(args.config)
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

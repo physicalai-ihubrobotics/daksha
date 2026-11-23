@@ -1,0 +1,103 @@
+===============================================================================
+ joint_state_logger — Parquet session file structure
+===============================================================================
+
+WHAT IS SAVED
+-------------
+One SINGLE Parquet file per recording session:
+
+    ~/daksha/logs/daksha_<YYYYmmdd_HHMMSS>.parquet
+
+All three streams (joint_states, motor_status, gesture_status) live together in
+this one file. Every row carries a `source` column that says which stream it
+came from. Columns that don't apply to a given row are left NULL.
+
+(If pyarrow isn't installed, the same layout is written as a single CSV:
+ ~/daksha/logs/daksha_<ts>.csv — identical columns.)
+
+A new file is created on Start / New session; it is finalised (footer written,
+so it becomes readable) on Stop or New session. Rename/Delete act on this file.
+
+
+UNIFIED SCHEMA (27 columns, in order)
+-------------------------------------
+  #  column          type      filled for            meaning
+  -- --------------- --------- --------------------- ------------------------------------
+   1 stamp_iso       string    ALL rows              wall-clock time, ISO-8601 (ms)
+   2 source          string    ALL rows              "joint_states" | "motor_status" | "gesture_status"
+   3 run_id          string    ALL rows              session id (= file timestamp)
+   4 timestamp_ns    int64     joint_states          ROS header stamp of the sample, in ns
+
+   -- joint_states rows (one row PER JOINT per sample) ------------------------
+   5 source_topic    string    joint_states          "/joint_states"
+   6 joint_name      string    joint_states          e.g. "left_joint_1"
+   7 position        float64   joint_states          joint position (rad)
+   8 velocity        float64   joint_states          joint velocity (rad/s)
+   9 effort          float64   joint_states          joint effort (N·m)
+
+   -- motor_status rows (one row PER MOTOR per sample) -----------------------
+  10 topic           string    motor_status          e.g. "/LeftArmSystem/motor_status"
+  11 arm_name        string    motor_status          arm label
+  12 motor_id        int64     motor_status          motor id
+  13 error           int64     motor_status          error code
+  14 error_name      string    motor_status          error name
+  15 mos_temp        float64   motor_status          MOSFET temperature (°C)
+  16 rotor_temp      float64   motor_status          rotor temperature (°C)
+
+   -- gesture_status rows (one row PER STATUS CHANGE) -----------------------
+  17 active          bool      gesture_status        a replay is playing
+  18 name            string    gesture_status        recording name being replayed
+  19 percent         float64   gesture_status        progress 0..100
+  20 frame           int64     gesture_status        current frame
+  21 total           int64     gesture_status        total frames
+  22 output_topic    string    gesture_status        where the replay is published
+  23 speed           float64   gesture_status        replay speed ×
+  24 message         string    gesture_status        status message
+  25 loop_count      int64     gesture_status        current loop number
+  26 repeat_mode     string    gesture_status        "once" | "count" | "infinite"
+  27 repeat_count    int64     gesture_status        requested loops (for "count")
+
+
+ROW LAYOUT (how the rows sit in the file)
+-----------------------------------------
+- joint_states : one sample (all joints at an instant) expands to N rows, one
+                 per joint, all sharing the same stamp_iso + timestamp_ns.
+- motor_status : one sample (all motors of a topic) expands to M rows, one per
+                 motor, all sharing the same stamp_iso.
+- gesture_status: one row per status change (duplicates are de-duped before save).
+
+Rows are appended in time order as the session records.
+
+
+EXAMPLE (one file, mixed sources)
+---------------------------------
+ stamp_iso                source          joint_name position mos_temp name  percent loop_count
+ 2026-10-14T16:18:14.001  joint_states    left_joint_1  0.11   (null)  (null) (null)  (null)
+ 2026-10-14T16:18:14.001  joint_states    right_joint_1 -0.20  (null)  (null) (null)  (null)
+ 2026-10-14T16:18:14.050  motor_status    (null)        (null) 45.0    (null) (null)  (null)
+ 2026-10-14T16:18:14.100  gesture_status  (null)        (null) (null)  wave   40.0    2
+
+
+READING IT BACK
+---------------
+    import pandas as pd
+    df = pd.read_parquet("~/daksha/logs/daksha_20261014_161814.parquet")
+
+    joints  = df[df.source == "joint_states"]   # position / velocity / effort
+    motors  = df[df.source == "motor_status"]    # mos_temp / rotor_temp / error
+    gests   = df[df.source == "gesture_status"]  # name / percent / loop_count
+
+NOTE ON REPLAY COMPATIBILITY
+----------------------------
+gesture_management's replay expects a joint-only file (columns timestamp_ns,
+joint_name, position, velocity, effort). To replay a logged session, first
+filter the joint rows and save them out:
+
+    joints = df[df.source == "joint_states"]
+    joints[["timestamp_ns","joint_name","position","velocity","effort"]] \
+        .to_parquet("my_replay.parquet", compression="snappy")
+
+-------------------------------------------------------------------------------
+This file documents the format; the authoritative schema is `_UNIFIED_FIELDS`
+in joint_state_logger/joint_state_logger_node.py.
+-------------------------------------------------------------------------------

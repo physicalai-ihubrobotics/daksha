@@ -1,0 +1,743 @@
+<?xml version="1.0"?>
+<!-- generated from /home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/daksha_raw.xml by local_pipeline/mjcf_to_urdf.py -->
+<robot name="daksha">
+  <link name="world" />
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0.0015902 -0.00183982 0.57096" rpy="-0.00198209132 0.0179444905 0.000198090558" />
+      <mass value="1" />
+      <inertia ixx="0.184425" iyy="0.178793" izz="0.0239657" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/base_link.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="base_link_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="-0.012273 -0.000421 1.651536" xyz="-0.007823 -0.002038 0.086266" />
+      <geometry>
+        <box size="0.504822 0.506659 0.192236" />
+      </geometry>
+    </collision>
+    <collision>
+      <geometry>
+        <box size="0.424200 0.390175 0.201329" />
+      </geometry>
+      <origin xyz="-0.001659 0.000918 0.257074" rpy="0.033138 0.014120 1.555060" />
+    </collision>
+    <collision>
+      <geometry>
+        <box size="0.394651 0.264008 0.199467" />
+      </geometry>
+      <origin xyz="-0.006195 -0.000165 0.438973" rpy="-3.141402 0.021591 1.578969" />
+    </collision>
+    <collision>
+      <geometry>
+        <cylinder radius="0.132588" length="0.374007" />
+      </geometry>
+      <origin xyz="-0.001253 -0.000355 0.630001" rpy="1.560382 0.006090 0.006027" />
+    </collision>
+    <collision>
+      <geometry>
+        <box size="0.301658 0.217919 0.199268" />
+      </geometry>
+      <origin xyz="0.011258 -0.002566 0.796109" rpy="3.138362 -0.013345 -1.554959" />
+    </collision>
+    <collision>
+      <geometry>
+        <box size="0.384755 0.245248 0.198321" />
+      </geometry>
+      <origin xyz="0.014775 -0.002363 0.974734" rpy="-3.137670 -0.000089 1.561877" />
+    </collision>
+    <collision>
+      <geometry>
+        <box size="0.382458 0.229599 0.215221" />
+      </geometry>
+      <origin xyz="0.002940 -0.000996 1.151416" rpy="-0.142520 0.008696 1.576266" />
+    </collision>
+    <collision>
+      <geometry>
+        <box size="0.196488 0.234866 0.154918" />
+      </geometry>
+      <origin xyz="0.012292 0.003518 1.316756" rpy="1.591932 -0.591193 0.064227" />
+    </collision>
+  </link>
+  <joint name="base_link_fixed" type="fixed">
+    <parent link="world" />
+    <child link="base_link" />
+    <origin xyz="0 0 0.22" rpy="0 0 0" />
+  </joint>
+  <link name="right_link_1">
+    <inertial>
+      <origin xyz="-0.00111678 -0.0301046 -0.000113971" rpy="-0.00722883669 0.00988803109 1.71274647" />
+      <mass value="1.05" />
+      <inertia ixx="0.0013519" iyy="0.00107797" izz="0.000952942" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.021703 0.13065 -1.05792" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/right_link_1.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="right_link_1_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0.066433 -0.102768 -0.003418" xyz="-0.001049 -0.043582 -0.002494" />
+      <geometry>
+        <cylinder radius="0.056093" length="0.127020" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_link_1_fixed" type="fixed">
+    <parent link="base_link" />
+    <child link="right_link_1" />
+    <origin xyz="-0.021703 -0.13065 1.05792" rpy="0 0 0" />
+  </joint>
+  <link name="right_link_2">
+    <inertial>
+      <origin xyz="-0.000860926 -0.0563729 3.63007e-07" rpy="1.57079633 0 0.0213516792" />
+      <mass value="1.091" />
+      <inertia ixx="0.00133496" iyy="0.00102105" izz="0.000850823" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.023328 0.19235 -1.05792" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/right_link_2.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="right_link_2_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="1.574858 -0.004193 1.893166" xyz="-0.003618 -0.050043 0.000040" />
+      <geometry>
+        <box size="0.127021 0.098184 0.081878" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_joint_1" type="revolute">
+    <parent link="right_link_1" />
+    <child link="right_link_2" />
+    <origin xyz="-0.001625 -0.0617 0" rpy="0 0 0" />
+    <axis xyz="0 -1 0" />
+    <limit lower="-0.349066" upper="4.53786" effort="100" velocity="3.0" />
+  </joint>
+  <link name="right_link_3">
+    <inertial>
+      <origin xyz="-0.0247948 0.000127822 -0.0201007" rpy="1.68718262 -0.00733980971 1.55910852" />
+      <mass value="0.25" />
+      <inertia ixx="0.000624022" iyy="0.000494961" izz="0.00044878" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="-0.006772 0.25235 -1.05792" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/right_link_3.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="right_link_3_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="-1.498291 0.871426 3.058714" xyz="-0.030588 -0.000233 -0.006617" />
+      <geometry>
+        <box size="0.141032 0.138978 0.108895" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_joint_2" type="revolute">
+    <parent link="right_link_2" />
+    <child link="right_link_3" />
+    <origin xyz="0.0301 -0.06 0" rpy="0 0 0" />
+    <axis xyz="1 0 0" />
+    <limit lower="-3.14159" upper="0.174533" effort="100" velocity="3.0" />
+  </joint>
+  <link name="right_link_4">
+    <inertial>
+      <origin xyz="-0.000786448 -0.00050182 -0.0894851" rpy="-0.00748358963 0.00073024166 -0.0174403353" />
+      <mass value="1.103" />
+      <inertia ixx="0.00463787" iyy="0.00455051" izz="0.00103188" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.023328 0.25235 -0.991669" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/right_link_4.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="right_link_4_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0.015999 0.020220 0.000162" xyz="-0.002459 0.001051 -0.092953" />
+      <geometry>
+        <cylinder radius="0.052388" length="0.192691" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_joint_3" type="revolute">
+    <parent link="right_link_3" />
+    <child link="right_link_4" />
+    <origin xyz="-0.0301 0 -0.06625" rpy="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.5708" upper="1.5708" effort="100" velocity="3.0" />
+  </joint>
+  <link name="right_link_5">
+    <inertial>
+      <origin xyz="-0.000211538 0.0421332 -0.073029" rpy="0.145435949 -0.00605518882 0.00090640782" />
+      <mass value="0.577" />
+      <inertia ixx="0.000639775" iyy="0.00057742" izz="0.000510872" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.0239516 0.294969 -0.837904" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/right_link_5.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="right_link_5_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="-2.976659 -0.006267 0.075791" xyz="-0.000057 0.036352 -0.040118" />
+      <geometry>
+        <cylinder radius="0.047678" length="0.145418" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_joint_4" type="revolute">
+    <parent link="right_link_4" />
+    <child link="right_link_5" />
+    <origin xyz="0 -0.042 -0.157992" rpy="0 0 0" />
+    <axis xyz="0 -1 0" />
+    <limit lower="0" upper="2.0944" effort="100" velocity="3.0" />
+  </joint>
+  <link name="right_link_6">
+    <inertial>
+      <origin xyz="0.000200813 -2.76576e-05 -0.0383754" rpy="2.16246887 0.00585933055 1.54532618" />
+      <mass value="0.402" />
+      <inertia ixx="0.000305796" iyy="0.000279766" izz="0.000269793" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.02447 0.25247 -0.731926" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/right_link_6.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="right_link_6_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="-0.015363 -0.844417 0.006902" xyz="0.001766 0.000169 -0.031947" />
+      <geometry>
+        <cylinder radius="0.048365" length="0.104730" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_joint_5" type="revolute">
+    <parent link="right_link_5" />
+    <child link="right_link_6" />
+    <origin xyz="0 0.042 -0.105826" rpy="0 0 -1.50000017" />
+    <axis xyz="0.010772 0 0.999942" />
+    <limit lower="0" upper="3.14159" effort="100" velocity="3.0" />
+  </joint>
+  <link name="right_link_7">
+    <inertial>
+      <origin xyz="-0.0291653 0.000607296 -0.0698801" rpy="0.0207746367 -0.0157420093 1.6107941" />
+      <mass value="0.542" />
+      <inertia ixx="0.000538612" iyy="0.000527245" izz="0.000375707" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="-0.003345 0.253148 -0.685373" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/right_link_7.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="right_link_7_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="-0.012015 0.164681 -0.000992" xyz="-0.024597 -0.001173 -0.039763" />
+      <geometry>
+        <cylinder radius="0.042705" length="0.142972" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_joint_6" type="revolute">
+    <parent link="right_link_6" />
+    <child link="right_link_7" />
+    <origin xyz="0.027815 -0.000678 -0.046553" rpy="0 0 0" />
+    <axis xyz="0.999655 -0.023953 -0.010768" />
+    <limit lower="-0.785398" upper="0.785398" effort="100" velocity="3.0" />
+  </joint>
+  <link name="right_link_8">
+    <inertial>
+      <origin xyz="0.0203285 0.0154626 -0.0610114" rpy="1.837569 -0.455157953 1.51258841" />
+      <mass value="0.524" />
+      <inertia ixx="0.00126782" iyy="0.00101956" izz="0.000512325" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.026596 0.277207 -0.606069" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/right_link_8.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="right_link_8_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="1.984924 0.473185 0.152680" xyz="0.032903 0.013818 -0.056190" />
+      <geometry>
+        <box size="0.177173 0.134388 0.090435" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_joint_7" type="revolute">
+    <parent link="right_link_7" />
+    <child link="right_link_8" />
+    <origin xyz="-0.029941 -0.024059 -0.079304" rpy="0 0 0" />
+    <axis xyz="-0.02378 -0.999591 0.015902" />
+    <limit lower="-1.5708" upper="1.5708" effort="100" velocity="3.0" />
+  </joint>
+  <link name="right_gripper_mount">
+    <inertial>
+      <origin xyz="-0.000126013 -0.000175072 -0.011196" rpy="-0.9097106 -1.54161353 2.45790605" />
+      <mass value="0.25" />
+      <inertia ixx="0.000518574" iyy="0.00050998" izz="3.43026e-05" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.027534 0.258107 -0.510704" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/right_gripper_mount.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="right_gripper_mount_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="3.130698 -0.015889 -1.593282" xyz="-0.000146 -0.000203 -0.012997" />
+      <geometry>
+        <box size="0.168116 0.057000 0.026000" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_gripper_mount_fixed" type="fixed">
+    <parent link="right_link_8" />
+    <child link="right_gripper_mount" />
+    <origin xyz="-0.000938 0.0191 -0.095365" rpy="0 0 0" />
+  </joint>
+  <link name="right_right_finger">
+    <inertial>
+      <origin xyz="-0.001303 0.000827 0.013729" rpy="-0.0376930388 -0.185581687 1.55587928" />
+      <mass value="0.03" />
+      <inertia ixx="2.04856e-05" iyy="1.58887e-05" izz="6.97695e-06" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.029281 0.32162 -0.45569" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/right_right_finger.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="right_right_finger_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0.417396 -1.337973 -1.944237" xyz="0.002297 0.005806 0.002113" />
+      <geometry>
+        <box size="0.094788 0.062385 0.035978" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_gripper_right_joint" type="prismatic">
+    <parent link="right_gripper_mount" />
+    <child link="right_right_finger" />
+    <origin xyz="-0.001747 -0.063513 -0.055014" rpy="0 0 0" />
+    <axis xyz="0.022481 0.999621 -0.015888" />
+    <limit lower="0" upper="0.044" effort="100" velocity="3.0" />
+  </joint>
+  <link name="right_left_finger">
+    <inertial>
+      <origin xyz="-0.000213 -0.000882 0.013848" rpy="0.0551986851 0.187135927 1.51937021" />
+      <mass value="0.03" />
+      <inertia ixx="2.06188e-05" iyy="1.60231e-05" izz="7.07626e-06" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.026398 0.195317 -0.453511" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/right_left_finger.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="right_left_finger_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="2.794645 -1.345785 1.824953" xyz="0.001619 -0.005437 0.001029" />
+      <geometry>
+        <box size="0.092991 0.062503 0.034204" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_gripper_left_joint" type="prismatic">
+    <parent link="right_gripper_mount" />
+    <child link="right_left_finger" />
+    <origin xyz="0.001136 0.06279 -0.057193" rpy="0 0 0" />
+    <axis xyz="-0.022481 -0.999621 0.015888" />
+    <limit lower="0" upper="0.044" effort="100" velocity="3.0" />
+  </joint>
+  <link name="right_tcp" />
+  <joint name="right_tcp_fixed" type="fixed">
+    <parent link="right_gripper_mount" />
+    <child link="right_tcp" />
+    <origin xyz="-0.000922 -0.000161 -0.099999" rpy="0 1.57000012 0" />
+  </joint>
+  <link name="left_link_1">
+    <inertial>
+      <origin xyz="-0.00111678 0.0301053 -0.000113973" rpy="-0.00722882207 -0.00988801729 1.42884618" />
+      <mass value="1.05" />
+      <inertia ixx="0.00135191" iyy="0.00107797" izz="0.000952943" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.021703 -0.127519 -1.05792" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/left_link_1.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="left_link_1_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="-0.067273 -0.102593 0.003455" xyz="-0.001049 0.043571 -0.002525" />
+      <geometry>
+        <cylinder radius="0.056090" length="0.127016" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_link_1_fixed" type="fixed">
+    <parent link="base_link" />
+    <child link="left_link_1" />
+    <origin xyz="-0.021703 0.127519 1.05792" rpy="0 0 0" />
+  </joint>
+  <link name="left_link_2">
+    <inertial>
+      <origin xyz="-0.000860852 0.0563737 1.16735e-05" rpy="1.57129938 0.0127513355 -0.0213641675" />
+      <mass value="1.091" />
+      <inertia ixx="0.00133467" iyy="0.001021" izz="0.000850823" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.023328 -0.189219 -1.05792" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/left_link_2.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="left_link_2_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="-1.587325 -0.008357 -1.892978" xyz="-0.003617 0.050045 0.000088" />
+      <geometry>
+        <box size="0.127019 0.098184 0.081871" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_joint_1" type="revolute">
+    <parent link="left_link_1" />
+    <child link="left_link_2" />
+    <origin xyz="-0.001625 0.0617 0" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <limit lower="-4.53786" upper="0.349066" effort="100" velocity="3.0" />
+  </joint>
+  <link name="left_link_3">
+    <inertial>
+      <origin xyz="-0.0250566 0.000327627 -0.0197716" rpy="1.6978574 -0.0149395808 1.58177638" />
+      <mass value="0.25" />
+      <inertia ixx="0.00062404" iyy="0.000495055" izz="0.00044888" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="-0.006769 -0.249219 -1.05752" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/left_link_3.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="left_link_3_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="1.461584 0.864263 -3.086547" xyz="-0.030699 0.000378 -0.006189" />
+      <geometry>
+        <box size="0.141057 0.138910 0.108936" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_joint_2" type="revolute">
+    <parent link="left_link_2" />
+    <child link="left_link_3" />
+    <origin xyz="0.030097 0.06 -0.000395" rpy="0 0 0" />
+    <axis xyz="-0.999914 0 0.01314" />
+    <limit lower="-3.14159" upper="0.174533" effort="100" velocity="3.0" />
+  </joint>
+  <link name="left_link_4">
+    <inertial>
+      <origin xyz="-0.00192442 0.00257946 -0.0894329" rpy="0.029405236 0.0149831332 -0.0518474601" />
+      <mass value="1.103" />
+      <inertia ixx="0.00463781" iyy="0.00455053" izz="0.00103194" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.024543 -0.250718 -0.991697" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/left_link_4.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="left_link_4_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0.002986 0.025731 0.000038" xyz="-0.003524 0.001396 -0.093174" />
+      <geometry>
+        <cylinder radius="0.052048" length="0.192943" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_joint_3" type="revolute">
+    <parent link="left_link_3" />
+    <child link="left_link_4" />
+    <origin xyz="-0.031312 0.001499 -0.065827" rpy="0 0 0" />
+    <axis xyz="-0.013136 0.022618 -0.999658" />
+    <limit lower="-1.5708" upper="1.5708" effort="100" velocity="3.0" />
+  </joint>
+  <link name="left_link_5">
+    <inertial>
+      <origin xyz="-0.004856 -0.032146 -0.073767" rpy="0.168961735 0.0088956246 -0.0674150312" />
+      <mass value="0.577" />
+      <inertia ixx="0.000639676" iyy="0.000577626" izz="0.000511148" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.023462 -0.288575 -0.838769" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/left_link_5.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="left_link_5_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="-2.887341 -0.008526 0.066679" xyz="-0.004481 -0.039937 -0.041875" />
+      <geometry>
+        <cylinder radius="0.050625" length="0.148805" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_joint_4" type="revolute">
+    <parent link="left_link_4" />
+    <child link="left_link_5" />
+    <origin xyz="0.001081 0.037857 -0.152928" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <limit lower="-2.0944" upper="0" effort="100" velocity="3.0" />
+  </joint>
+  <link name="left_link_6">
+    <inertial>
+      <origin xyz="-0.000302279 0.000905956 -0.0383639" rpy="2.16447174 -0.0303404304 1.56654059" />
+      <mass value="0.402" />
+      <inertia ixx="0.000305798" iyy="0.000279749" izz="0.000269808" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.029031 -0.25756 -0.732078" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/left_link_6.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="left_link_6_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="-0.025683 -0.854949 0.011701" xyz="0.001352 0.000660 -0.031594" />
+      <geometry>
+        <cylinder radius="0.048624" length="0.104474" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_joint_5" type="revolute">
+    <parent link="left_link_5" />
+    <child link="left_link_6" />
+    <origin xyz="-0.005569 -0.031015 -0.106691" rpy="0 0 1.50000017" />
+    <axis xyz="0.010772 0 0.999942" />
+    <limit lower="-3.14159" upper="0" effort="100" velocity="3.0" />
+  </joint>
+  <link name="left_link_7">
+    <inertial>
+      <origin xyz="-0.0300839 0.00189172 -0.0694669" rpy="0.0381897297 -0.0076903387 1.50600064" />
+      <mass value="0.542" />
+      <inertia ixx="0.000538623" iyy="0.000526953" izz="0.000375583" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.001822 -0.258463 -0.685173" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/left_link_7.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="left_link_7_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0.108095 0.180218 0.009776" xyz="-0.024301 0.003429 -0.040058" />
+      <geometry>
+        <cylinder radius="0.043433" length="0.144580" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_joint_6" type="revolute">
+    <parent link="left_link_6" />
+    <child link="left_link_7" />
+    <origin xyz="0.027209 0.000903 -0.046905" rpy="0 0 0" />
+    <axis xyz="-0.999692 0.006268 0.024032" />
+    <limit lower="-0.785398" upper="0.785398" effort="100" velocity="3.0" />
+  </joint>
+  <link name="left_link_8">
+    <inertial>
+      <origin xyz="0.0190414 -0.014665 -0.0616203" rpy="1.8511183 0.431914457 1.6042072" />
+      <mass value="0.524" />
+      <inertia ixx="0.00126773" iyy="0.0010194" izz="0.000512319" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.032046 -0.285244 -0.606854" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/left_link_8.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="left_link_8_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="2.853058 1.039451 2.644315" xyz="0.029483 -0.012427 -0.060522" />
+      <geometry>
+        <cylinder radius="0.060215" length="0.177500" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_joint_7" type="revolute">
+    <parent link="left_link_7" />
+    <child link="left_link_8" />
+    <origin xyz="-0.030224 0.026781 -0.078319" rpy="0 0 0" />
+    <axis xyz="0.007199 0.999219 0.038845" />
+    <limit lower="-1.5708" upper="1.5708" effort="100" velocity="3.0" />
+  </joint>
+  <link name="left_gripper_mount">
+    <inertial>
+      <origin xyz="-0.000267089 0.000436362 -0.0111866" rpy="2.70314579 -1.52632018 -1.14108566" />
+      <mass value="0.25" />
+      <inertia ixx="0.000519204" iyy="0.000509774" izz="3.38794e-05" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.034822 -0.268384 -0.511104" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/left_gripper_mount.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="left_gripper_mount_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="-3.117386 -0.038823 1.562292" xyz="-0.000310 0.000507 -0.012987" />
+      <geometry>
+        <box size="0.168116 0.057000 0.026000" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_gripper_mount_fixed" type="fixed">
+    <parent link="left_link_8" />
+    <child link="left_gripper_mount" />
+    <origin xyz="-0.002776 -0.01686 -0.09575" rpy="0 0 0" />
+  </joint>
+  <link name="left_left_finger">
+    <inertial>
+      <origin xyz="-0.001563 -0.000392 0.013651" rpy="-0.0121374073 0.205468553 1.57649301" />
+      <mass value="0.03" />
+      <inertia ixx="2.04648e-05" iyy="1.59987e-05" izz="7.00985e-06" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.034932 -0.331499 -0.457707" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/left_left_finger_.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="left_left_finger_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0.341998 1.325691 -1.300368" xyz="0.001734 -0.005670 0.002077" />
+      <geometry>
+        <box size="0.094790 0.062381 0.035974" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_gripper_left_joint" type="prismatic">
+    <parent link="left_gripper_mount" />
+    <child link="left_left_finger" />
+    <origin xyz="-0.00011 0.063115 -0.053397" rpy="0 0 0" />
+    <axis xyz="0.008498 0.99921 0.038813" />
+    <limit lower="-0.044" upper="0" effort="100" velocity="3.0" />
+  </joint>
+  <link name="left_right_finger">
+    <inertial>
+      <origin xyz="-0.001525 -0.000206 0.013188" rpy="-0.023178028 -0.244123081 1.55750532" />
+      <mass value="0.03" />
+      <inertia ixx="2.04515e-05" iyy="1.58806e-05" izz="6.89687e-06" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0.036012 -0.208223 -0.453287" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/left_right_finger.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="left_right_finger_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0.299233 -1.290360 -1.816556" xyz="0.001820 0.005447 0.001800" />
+      <geometry>
+        <box size="0.094773 0.062372 0.035929" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_gripper_right_joint" type="prismatic">
+    <parent link="left_gripper_mount" />
+    <child link="left_right_finger" />
+    <origin xyz="-0.00119 -0.060161 -0.057817" rpy="0 0 0" />
+    <axis xyz="-0.008498 -0.99921 -0.038813" />
+    <limit lower="-0.044" upper="0" effort="100" velocity="3.0" />
+  </joint>
+  <link name="left_tcp" />
+  <joint name="left_tcp_fixed" type="fixed">
+    <parent link="left_gripper_mount" />
+    <child link="left_tcp" />
+    <origin xyz="-0.002643 0.002152 -0.099372" rpy="0 1.57000012 0" />
+  </joint>
+  <link name="wheel_base">
+    <inertial>
+      <origin xyz="-0.13534 0.123533 -0.144651" rpy="0.225123603 -1.56758864 2.98973703" />
+      <mass value="10" />
+      <inertia ixx="0.369328" iyy="0.212804" izz="0.206128" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="-0.131791 0.124714 -0.002244" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/ihub/Desktop/rax/local_daksha_rax/assets/daksha/meshes/wheel_base.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="wheel_base_mat">
+        <color rgba="0.7 0.7 0.7 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="-3.140276 0.001528 0.002163" xyz="-0.139516 0.122837 -0.116206" />
+      <geometry>
+        <box size="0.538910 0.528055 0.233307" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="wheel_base_fixed" type="fixed">
+    <parent link="base_link" />
+    <child link="wheel_base" />
+    <origin xyz="0.131791 -0.124714 0.002244" rpy="0 0 0" />
+  </joint>
+</robot>

@@ -1,0 +1,14 @@
+bionic_hand:
+  ros__parameters:
+    # Serial device for the shared SCS bus. Use "sim://both" to run against the
+    # built-in simulator with no hardware attached.
+    # "auto" detects the bionic hand by USB vendor ID (1a86:55d3).
+    port: "auto"
+    baud: 1000000
+    # Optional JSON calibration file to load on start ("" = use built-in defaults).
+    calibration_file: ""
+    # Treat the hands as physically OPEN on connect, so smooth/staged motion is
+    # allowed without reading the motors first.
+    assume_open: false
+    auto_connect: true
+    publish_rate_hz: 5.0

@@ -1,0 +1,11 @@
+{
+  "hard_failures": 2,
+  "pass_count": 0,
+  "per_check": {
+    "frozen_video": 2
+  },
+  "reject_count": 1,
+  "review_count": 0,
+  "soft_warnings": 0,
+  "total_episodes": 1
+}

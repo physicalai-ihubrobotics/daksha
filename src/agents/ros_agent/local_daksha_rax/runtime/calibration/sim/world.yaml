@@ -1,0 +1,7 @@
+# world camera: T_cam_base (P_cam = T @ P_base), base = robot frame
+# exact simulator extrinsics
+matrix:
+- [0.0, -1.0, 0.0, -0.0]
+- [-0.882947593, -0.0, -0.469471563, 0.837489416]
+- [0.469471563, 0.0, -0.882947593, 1.287531156]
+- [0.0, 0.0, 0.0, 1.0]

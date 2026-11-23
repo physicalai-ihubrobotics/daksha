@@ -1,0 +1,1 @@
+{"mcpServers": {"robot": {"type": "stdio", "command": "/usr/bin/python3", "args": ["/home/ihub/robot/src/agents/ros_agent/local_daksha_rax/harness/mcp_bridge.py", "/tmp/daksha_rax_2002.sock"]}}}

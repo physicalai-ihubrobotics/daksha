@@ -1,0 +1,39 @@
+Camera Topics (from camera/camera_launch/config/cameras.yaml)
+=============================================================
+
+Each camera publishes under /<namespace>/<name>/...
+Depth is disabled on all cameras (color only).
+Raw comes from the RealSense node; compressed comes from a separate
+image_transport republish process per camera.
+
+WORLD camera
+  Raw color        : /camera/world/color/image_raw
+  Compressed color : /camera/world/color/image_raw/compressed
+  Camera info      : /camera/world/color/camera_info
+
+RIGHT camera
+  Raw color        : /right/camera/color/image_raw
+  Compressed color : /right/camera/color/image_raw/compressed
+  Camera info      : /right/camera/color/camera_info
+
+LEFT camera
+  Raw color        : /left/camera/color/image_raw
+  Compressed color : /left/camera/color/image_raw/compressed
+  Camera info      : /left/camera/color/camera_info
+
+Data-collection config (ui/Clients_UI/daksha_data_collection/config/config.yaml)
+uses the compressed feeds:
+  world : /camera/world/color/image_raw/compressed
+  left  : /left/camera/color/image_raw/compressed
+  right : /right/camera/color/image_raw/compressed
+
+
+ros2 launch aruco_hand_eye daksha_hand_eye.launch.py
+
+
+ros2 launch aruco_hand_eye aruco_reach.launch.py execute:=true   # sends /joint_cmd, the arm moves
+
+ros2 service call /aruco_reach/right/go std_srvs/srv/Trigger
+ros2 service call /aruco_reach/left/go  std_srvs/srv/Trigger
+ros2 service call /aruco_reach/stop     std_srvs/srv/Trigger
+

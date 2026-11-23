@@ -1,0 +1,13 @@
+{
+  "hard_failures": 15,
+  "pass_count": 0,
+  "per_check": {
+    "action_range": 15,
+    "action_smoothness": 1,
+    "image_quality": 3
+  },
+  "reject_count": 15,
+  "review_count": 35,
+  "soft_warnings": 4,
+  "total_episodes": 50
+}

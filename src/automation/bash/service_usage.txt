@@ -1,0 +1,35 @@
+Gen2 Robot Service — Quick Reference
+=====================================
+
+Install the service:
+  sudo ./install_robot_service.sh
+
+Uninstall the service:
+  sudo ./uninstall_robot_service.sh
+
+Start the service:
+  sudo systemctl start gen2-robot.service
+
+Stop the service:
+  sudo systemctl stop gen2-robot.service
+
+Restart the service:
+  sudo systemctl restart gen2-robot.service
+
+Check service status:
+  systemctl status gen2-robot.service
+
+Enable auto-start on boot:
+  sudo systemctl enable gen2-robot.service
+
+Disable auto-start on boot:
+  sudo systemctl disable gen2-robot.service
+
+View live logs:
+  journalctl -u gen2-robot.service -f
+
+View recent logs (last 100 lines):
+  journalctl -u gen2-robot.service -n 100
+
+View logs since last boot:
+  journalctl -u gen2-robot.service -b

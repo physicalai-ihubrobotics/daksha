@@ -1,0 +1,25 @@
+# joint_overrides.yaml
+#
+# Hardware joint-direction corrections for teleop.
+#
+# Some joints are wired so the real hardware spins OPPOSITE to the URDF. placo/
+# IK and /joint_cmd are always in URDF convention, so such a joint looks correct
+# in placo and in the 3D viewer but moves the wrong way on the real arm.
+#
+# joint_command_limiter (gen2/gen2/joint_cmd.py) flips the sign of every joint
+# listed here at the hardware boundary ONLY: feedback read from /joint_states is
+# converted back to URDF convention, and commands are converted to hardware
+# convention on publish. Everything upstream (placo/IK, /joint_cmd,
+# /jnt_cmt_to_ctrl) stays in URDF convention and is left untouched.
+#
+# This is the real-arm counterpart of automation/.../viewer_joint_overrides.yaml
+# (which only negates joints for the dashboard's 3D view). Keep the two in sync
+# if a joint is wrong in both.
+#
+# Add a URDF joint name under inverted_joints if it is correct in placo but
+# inverted on the real arm.
+
+joint_command_limiter:
+  ros__parameters:
+    inverted_joints:
+      - right_joint_6

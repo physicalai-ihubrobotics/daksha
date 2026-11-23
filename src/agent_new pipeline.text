@@ -1,0 +1,196 @@
+# Daksha: Reasoning-Based Dynamic Manipulation and Autonomous Experience Learning
+
+## Objective
+
+Upgrade the existing Daksha RAX + ROS 2 robotics pipeline into a reasoning-based embodied AI system.
+
+Do not create manually maintained object-specific grasp profiles, hardcoded grasp-selection rules, or manually populated experience records.
+
+The AI agent must inspect the existing repository, understand the current implementation, identify missing capabilities, and design and implement the required changes using the existing architecture.
+
+## 1. Repository investigation
+
+Before modifying anything:
+
+- Inspect the complete existing RAX integration.
+- Understand the agent execution workflow.
+- Inspect the Ollama VLM implementation.
+- Inspect the perception and camera pipelines.
+- Inspect robot.py and real_backend.py.
+- Inspect the MCP tools and ROS 2 backend.
+- Inspect IK, collision checking and motion execution.
+- Inspect the existing task logs, transcripts and reports.
+- Identify existing memory and tracking mechanisms.
+
+Do not duplicate existing functionality.
+
+Prepare a dependency map showing which components need modification and why.
+
+## 2. Dynamic object understanding
+
+The agent must understand objects from actual observations rather than fixed object-name rules.
+
+Use available RGB, depth, segmentation, camera calibration and robot-state information.
+
+Estimate:
+
+- Object geometry and dimensions.
+- 3D position and orientation.
+- Shape and deformability where observable.
+- Accessible grasp regions.
+- Contact surfaces.
+- Object uncertainty.
+- Surrounding obstacles.
+- Current object location.
+
+Support rigid and deformable objects, including cables, cloth, boxes, bottles and unknown objects.
+
+Do not assume that the object centre is a valid grasp point.
+
+## 3. Dynamic grasp reasoning
+
+Do not implement a fixed mapping such as:
+
+- Cable = top-down pinch.
+- Cloth = edge pinch.
+- Box = side grasp.
+
+Instead, let the reasoning and planning system generate candidate grasp strategies from the observed geometry, gripper capabilities, robot configuration and task requirements.
+
+For each candidate:
+
+1. Generate a proposed grasp pose.
+2. Evaluate approach direction.
+3. Evaluate gripper clearance.
+4. Evaluate reachability and IK.
+5. Check collision constraints.
+6. Evaluate contact feasibility.
+7. Estimate execution risk.
+8. Compare candidate strategies.
+9. Select a feasible strategy or request another observation.
+
+Use deterministic geometric calculations for measurements and kinematics. Use the reasoning model for task interpretation, strategy selection and recovery decisions.
+
+Do not allow the language model to invent metric coordinates.
+
+## 4. Autonomous memory generation
+
+Implement persistent experience memory that is generated automatically during actual task execution.
+
+Record:
+
+- Task description.
+- Camera observations and timestamps.
+- Object geometry.
+- Robot configuration.
+- Candidate strategies.
+- Selected grasp strategy.
+- Motion-planning results.
+- Execution feedback.
+- Gripper feedback.
+- Visual verification.
+- Final outcome.
+- Failure reasons.
+- Recovery actions.
+
+The memory system must generate unique episode identifiers and persist records automatically.
+
+Support retrieval by semantic similarity, object geometry, task type and previous outcomes.
+
+Distinguish historical object locations from current observations.
+
+Do not manually populate success examples or fabricate task outcomes.
+
+## 5. Reasoning and planning loop
+
+Implement a closed-loop agent:
+
+UNDERSTAND → OBSERVE → LOCALIZE → RETRIEVE MEMORY → REASON → GENERATE CANDIDATES → VALIDATE → SELECT → EXECUTE → VERIFY → LEARN.
+
+If an action fails:
+
+- Identify the failure using actual sensor feedback.
+- Re-observe the scene.
+- Retrieve relevant previous experiences.
+- Generate alternative strategies.
+- Replan.
+- Stop or request human intervention if safe recovery is not possible.
+
+Never repeat a failed strategy without evaluating the failure.
+
+## 6. Tool integration
+
+Preserve and extend the existing Daksha MCP tools.
+
+The reasoning agent should use tools for:
+
+- Robot state.
+- Camera observations.
+- Object localization.
+- Geometry extraction.
+- Spatial memory retrieval.
+- Grasp candidate generation.
+- IK and collision validation.
+- Motion planning.
+- Gripper control.
+- Grasp verification.
+- Experience storage.
+
+All tool calls must use validated schemas and explicit permissions.
+
+Do not expose arbitrary shell commands or direct unrestricted motor control to the model.
+
+## 7. Safety
+
+Preserve the existing dry-run-by-default architecture.
+
+All physical execution must pass independent safety checks.
+
+Validate:
+
+- Fresh joint states.
+- Camera timestamps.
+- Calibration.
+- Workspace boundaries.
+- Joint limits.
+- Collision constraints.
+- Gripper constraints.
+- Motion velocity and acceleration.
+- E-stop state.
+- Operator authorization.
+
+The AI must never bypass the safety layer.
+
+## 8. Implementation requirements
+
+- Reuse existing files and modules wherever possible.
+- Do not create redundant pipelines.
+- Do not hardcode object-specific grasp profiles.
+- Do not manually create experience examples.
+- Prefer dynamically generated, validated plans.
+- Keep geometry and motion calculations deterministic.
+- Keep the reasoning model responsible for high-level decisions.
+- Preserve existing working robot functionality.
+- Use simulation and dry-run testing before hardware execution.
+
+## 9. Required deliverables
+
+Before implementation, provide:
+
+1. Existing architecture analysis.
+2. Current limitations.
+3. Proposed architecture changes.
+4. Exact files to modify.
+5. New components required and their justification.
+6. Data flow and tool-call flow.
+7. Safety impact assessment.
+8. Implementation sequence.
+9. Testing and acceptance criteria.
+
+After approval, implement incrementally, run tests and report actual results.
+
+Do not claim a feature works unless it has been implemented and tested.
+
+## Final objective
+
+Daksha must be able to encounter an unfamiliar object, understand its geometry, reason about possible manipulation strategies, select a feasible grasp, execute through the existing ROS 2 robot backend, verify the outcome and automatically accumulate experience for future tasks.

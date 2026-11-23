@@ -1,0 +1,370 @@
+DAKSHA ROBOT AGENT (ros_agent + RAX): HOW THE PIPELINE WORKS
+=============================================================
+Based on the code in src/agents/ros_agent as of 2026-11-16.
+All paths below are relative to src/agents/ros_agent/ unless they say otherwise.
+
+
+1. THE SHORT VERSION
+--------------------
+The operator types a task on the web page (port 8150), for example "pick up the box with the right
+hand". The steps after that:
+
+  1. The text goes to the RAX agent. This is Claude Code (`claude -p`) running on the LOCAL Ollama
+     model (no cloud model).
+  2. The RAX agent can only call "robot tools" over MCP: daksha_plan, daksha_find, daksha_pick_up,
+     daksha_put_down, daksha_status, daksha_report, and so on. It has no shell and no file tools.
+  3. These tools run inside the ros_agent process. They use the local_pipeline "Skills" (perception,
+     pick, place), the vision model (VLM, the same Ollama model), the cameras and the calibration.
+  4. Every motion becomes a ROS 2 action to aruco_reach (in the aruco_hand_eye package).
+     aruco_reach solves IK, checks self-collision and the table floor, and publishes /joint_cmd,
+     but only when its "execute" switch is ON. Otherwise it is a dry run.
+  5. The agent finishes with daksha_report(complete, summary, evidence). That entry shows up in the
+     task log on the page.
+
+Everything (the web page, Ask agent, pipeline node, RAX tool server, trackers, safety monitor) runs
+in ONE process, `agent_node`, started with:
+
+    ros2 launch ros_agent agent.launch.py        (or agent_with_aruco_reach.launch.py)
+
+aruco_reach is a separate node and must be running for anything to move.
+
+
+2. BIG PICTURE DIAGRAM
+----------------------
+
+  Browser  http://<robot>:8150/   (web/chat.html; tabs: Ask | Robot tasks | IK Debug)
+     |  POST /api/pipeline/command {"text"}   (or ROS topic /pipeline/command)
+     v
+ +--------------------------------- agent_node process ----------------------------------+
+ |                                                                                        |
+ |  RosAgent (agent_node.py)            PipelineNode (pipeline_node.py)                   |
+ |  - web server (web.py)               - ROS I/O: /joint_states, world camera,           |
+ |  - Ask agent: read-only Q&A,           2 wrist cameras (+depth), motor temps,          |
+ |    ROS topic tools, cameras            battery, diagnostics                            |
+ |  - ObjectTracker (world camera)      - calibration, table height                       |
+ |  - 2 wrist ObjectTrackers            - SafetyMonitor (1 Hz)                            |
+ |                                      - publishes /pipeline/status, /pipeline/objects,  |
+ |                                        TF object_<name> / pipeline_goal                |
+ |                                      - LocalAgent (local_pipeline/agent.py)            |
+ |                                          queue + worker thread, chat, plan card, log   |
+ |                                          Skills (local_pipeline/robot.py)              |
+ |                                          OllamaVLM (local_pipeline/ollama_vlm.py)      |
+ |                                          RosRobotBackend (real_backend.py)             |
+ |                                                                                        |
+ |  RaxAgent (rax_agent.py)                                                               |
+ |  - MCP "robot" tool server on a unix socket /tmp/daksha_rax_<uid>.sock                 |
+ |      Frontend (local_daksha_rax/services/controller/frontend.py, "formal" mode)        |
+ |      DakshaRosBackend (local_daksha_rax/services/daksha_ros/backend.py)                |
+ |        = RAX daksha_* tools + ros_agent's extra tools (find/track/pick/put/plan/report)|
+ |  - per task: spawns `claude -p ... --tools "" --allowedTools mcp__robot`               |
+ |      Claude Code <-stdio-> harness/mcp_bridge.py <-unix socket-> Frontend              |
+ +----------------------------------------------------------------------------------------+
+     |  ROS 2 actions (aruco_hand_eye MotionClient): MoveToPose / MoveJoints / Gripper
+     v
+  aruco_reach node (src/aruco_hand_eye/aruco_hand_eye/aruco_reach.py)
+     - IK, straight-line or joint-space path, self-collision check, min TCP z = table floor
+     - owns the EXECUTE switch (dry run by default); lag / stall / stale-data stops
+     - the ONLY node that publishes /joint_cmd
+     v
+  /joint_cmd -> joint_command_limiter -> arm hardware (Damiao motors), grippers
+
+  Ollama (localhost:11434) serves ONE model to everyone: the Ask agent, the RAX agent, the VLM
+  detector and the trackers.
+
+
+3. STARTUP SEQUENCE (agent_node.py main())
+------------------------------------------
+ 1. RosAgent node "ros_agent":
+    - loads the URDF/SRDF (config/robots.yaml), live joint state, camera feeds
+      (automation camera_topics.yaml) and the Ask agent's tools (+ any-ROS-topic reader)
+    - creates the world-camera ObjectTracker (VLM finds the box, OpenCV CSRT follows it)
+    - starts the web page on port 8150 (retries if the port is busy)
+ 2. PipelineNode "pipeline" (unless pipeline:=false). It reads config/pipeline.yaml, then:
+    - subscribes to /joint_states, the world camera (+ optional depth), both wrist cameras (+ aligned
+      depth), /RightArmSystem|LeftArmSystem/motor_status, /battery_info, /diagnostics and
+      /aruco_reach/status
+    - loads the world-camera calibration (eye_to_hand_world_right.yaml, with a separate _left file
+      for left-arm picks) and the wrist eye-in-hand calibrations
+    - sets table_z from the config (0.888 m now), or later from "Measure table" (the ArUco marker)
+    - creates the MotionClient for /aruco_reach and the SafetyMonitor
+    - on a background thread: connects to Ollama, warms up the model, builds
+      LocalAgent(backend=RosRobotBackend)
+ 3. Wiring, done in the "pipeline_wire" thread once the agent is up:
+    - the model is made into its "rax-<model>:64k" twin (same weights, 64k context, so Ollama keeps
+      one copy loaded for everything)
+    - pipeline.ask_fn: questions are answered by the Ask agent, with the world camera image attached
+    - pipeline.tracker: world tracker; tracker.reject throws away boxes that land on the robot's own
+      gripper or wrist camera
+    - pipeline.wrist_trackers: one tracker per wrist camera
+    - RaxAgent.start() (rax_agent param, default TRUE). From then on EVERY prompt goes to RAX.
+      If RAX can't start, the old local planner is used instead (see section 9).
+ 4. Both nodes spin on one SingleThreadedExecutor.
+
+
+4. WHAT HAPPENS TO ONE PROMPT, STEP BY STEP
+-------------------------------------------
+Example: "pick up the box with the right hand and put it on the left".
+
+ a) Web page -> PipelineNode.submit(text) -> LocalAgent.submit(text)
+    - It is shown in the chat as "operator".
+    - "stop / halt / wait / ruko / ..." (3 words or fewer) = an instant stop, no model call.
+    - If a task is already running, it is stopped first: a new task replaces the old one.
+    - The task is queued as ('rax', text) for the single worker thread.
+
+ b) The worker thread runs RaxAgent.run(text):
+    - It spawns Claude Code:
+        claude -p --output-format stream-json --mcp-config <mcp.json> --strict-mcp-config
+               --tools "" --allowedTools mcp__robot --permission-mode dontAsk
+               --model rax-<model>:64k --append-system-prompt <SYSTEM> -- "<text>"
+      with ANTHROPIC_BASE_URL pointing at the local Ollama.
+    - The SYSTEM prompt (rax_agent.py, also written to agent-workspace/CLAUDE.md) tells it: plan
+      first, use only the skills, check status, replan at most 2 times on failure, never stop for
+      safety alerts (just mention them), respect the hand the operator named, verify, and always end
+      with daksha_report.
+    - The stream-json output is shown live: text -> chat, every tool call -> "▸ tool args",
+      every tool error -> "✗ ...". Everything is saved to runtime/ui_agent/transcript.jsonl.
+
+ c) A typical sequence of tool calls from the agent:
+      daksha_status         execute on/off, table, calibration, grippers, safety alerts, temps
+      daksha_plan           ["pick up the box with the right hand", "put it down on the left"]
+                            -> the plan card on the page (each later action fills one step)
+      daksha_pick_up        {object: "box", arm: "right"}
+      daksha_put_down       {location: {"region": "left"}}
+      daksha_find           (to verify)
+      daksha_report         {complete: true, summary, evidence}
+
+ d) The result: the report becomes the task-log entry (completed / failed / interrupted / dry run).
+    A run with no daksha_report counts as failed ("completion not verified").
+
+
+5. THE TOOLS THE RAX AGENT CAN USE
+----------------------------------
+From DakshaRosBackend (the RAX tool set on the real robot):
+  daksha_status            robot state summary (see 4c)
+  daksha_observe           images from world / right_wrist / left_wrist (+ frame ids); frames are
+                           also saved to agent-workspace/frames/<id>/
+  daksha_footprint         bbox in a world frame -> where the object stands (box model fitted on
+                           the table plane)
+  daksha_pixel_to_position pixels -> 3-D (depth if present, otherwise a ray hitting the table plane)
+  daksha_check             IK reachability dry check, nothing moves
+  daksha_gripper           open / close / width; returns width_m and stalled_before_target
+  daksha_home              arm(s) to the gen2 home pose
+  daksha_measure_table     table height from the 80 mm ArUco (ID 0) lying on the table
+  HIDDEN by default:       daksha_move_eef, daksha_move_eef_both, daksha_move_joints
+                           (raw motion; set rax_raw_motion: true in pipeline.yaml to allow them)
+
+Added by rax_agent.py (these wrap the pipeline's Skills):
+  daksha_plan       shows and revises the sub-plan (limited by max_replans, 2 by default)
+  daksha_find       VLM box + 3-D position in one camera; puts live boxes in all 3 camera views
+                    and publishes TF object_<name> / pipeline_goal
+  daksha_track      live box tracking (VLM once, then CSRT every frame)
+  daksha_pick_up    the full pick skill (section 6)
+  daksha_put_down   put the held object on the table (region / near X / xy / back) or into a
+                    container
+  daksha_ros_info   read-only Ask-agent tools (joints, limits, topics, ...)
+  daksha_report     REQUIRED last call: the verdict
+
+Every action tool call (pick, put, home, gripper, find, ...) is automatically one step of the plan
+card: it starts the next pending step and marks it done or failed (rax_agent._wrap_plan).
+
+
+6. HOW A PICK WORKS (daksha_pick_up -> Skills.pick)
+---------------------------------------------------
+rax_agent._pick:
+  - The object name is added to the known objects (there is NO allowlist on the real robot).
+  - The arm comes from the operator's words if they named one ("right hand"); a different arm chosen
+    by the model is refused.
+  - The grasp style is the UI choice (side / top / tilted) if one is set, otherwise the model's
+    choice, otherwise pipeline.yaml grasp_style (side).
+  - _pick_tracked: clear_view_real() first (homes any empty arm that hangs over the table, so it
+    doesn't block the world camera). Then ONE VLM detection, after which the CSRT tracker follows
+    the object. The pick target is taken from the tracker's box.
+
+Skills.pick (local_pipeline/robot.py). Each sub-task below is retried by itself (default 2 retries,
+each with a recovery action) and shows up under the plan step:
+  1. see the <obj> with the world camera
+       Position from the tracker box (bottom edge projected onto the table plane), remapped with
+       the picking arm's own world calibration.
+  2. open the gripper
+       Must reach 6 cm or wider, otherwise it fails.
+  3. go near the <obj>   (pre-grasp)
+       side: tries side_grasp_candidates [inward yaw, down pitch] in order until IK accepts one.
+             The TCP starts >= 10 cm above the table, 10 cm back along the approach.
+       top / tilted: above the object at GRASP_TCP_Z + pregrasp_dz.
+  4. see the <obj> with the gripper camera   (side grasp)
+       The wrist tracker must find it. If not: look again with the world camera and try the next
+       approach angle.
+  5. move in to the <obj>
+       side: wrist_approach. Visual servoing on wrist DEPTH: each step measures object minus
+       fingertips and moves sideways and forward (<= 3 cm a step, <= 25 cm in total). The height is
+       held between table + 4 cm and table + 30 cm, and the fingertips go 2 cm past the object
+       centre.
+       Fallback: a straight move to the world-camera estimate.
+  6. close the gripper
+       Must STALL on something AND stay 1.5 cm or wider; otherwise "empty grasp" -> open, back off,
+       move in again.
+  7. lift the <obj>
+       Up by pregrasp_dz (13 cm); the fingers must still be 1.5 cm or wider apart.
+  8. check the grasp
+       Gripper width + the VLM on the wrist image: "is it held between the fingers?"
+  The result goes to the chat ("Picked the box with the right hand (3.2 cm between the fingers)")
+  and to the grasp card. The TCP pose at the grasp is remembered for "put it back".
+  If a whole attempt fails: recover() (open both grippers, home both arms), and the error tells the
+  agent "What could work instead" so it can replan (another style, the other arm, re-find).
+
+
+7. HOW A PUT-DOWN WORKS (daksha_put_down -> Skills.place_at / put_in)
+--------------------------------------------------------------------
+  check what the hand holds -> choose a free spot (region / near / xy / "back" = exact pick pose;
+  keeps clear of other objects and containers, and within the arm's reach) -> go above the spot
+  (joint path; tries other spots if one fails) -> lower it onto the table (side grasp: keeps the
+  grip height; the gripper camera asks "is the bottom touching?"; lowers 1 cm more up to 8 times)
+  -> open the gripper -> move the hand away -> gripper camera: "is it standing there?" -> go home
+  -> check where it is (world camera; it must be within 10 cm of the target).
+  put_in(container): move above the container at release height, open, lift, home.
+
+
+8. PERCEPTION: CAMERAS, VLM, TRACKERS, 3-D
+------------------------------------------
+Cameras
+  world        /camera/world/color/image_raw (+ camera_info). Depth is OFF now (depth_topic: "").
+               Pose = the eye-to-hand calibration from aruco_hand_eye (one file per arm).
+  right_wrist  /right/camera/color + aligned_depth_to_color (eye_in_hand_right_wrist.yaml)
+  left_wrist   /left/camera/...                             (eye_in_hand_left_wrist.yaml)
+               Wrist camera pose = forward kinematics of the arm's joints at capture x mount
+               calibration.
+
+Vision model (OllamaVLM.detect)
+  - "Locate each of these objects: <labels>" -> JSON boxes on a 0..1000 grid. If the reply is
+    broken, it retries with schema-constrained decoding.
+  - With no labels ("look"): "every clearly visible movable object and container".
+  - Boxes that cover the robot's own hand or wrist camera are thrown away (PipelineNode.robot_part,
+    from FK + calibration).
+  - In the sim only, a colour-threshold fallback exists for apple / orange / banana / bowl.
+
+From a box to 3-D
+  - Skills._localize: an 11x11 pixel grid inside the box -> daksha_pixel_to_position -> keep the
+    points between table + 3 mm and table + 25 cm -> median x,y; top = the highest point.
+  - Without world depth, each pixel ray hits a plane plane_offset_m (3 cm) above the table, so the
+    world-camera estimate is approximate. The wrist depth corrects it during "move in".
+  - Live objects for the IK viewer: PipelineNode.objects_3d() -> /pipeline/objects (JSON) + TF.
+
+Trackers (tracker.py)
+  - VLM finds the box once (about 1 s), OpenCV CSRT follows it every frame, and the VLM re-checks
+    every few seconds (5 s on the world camera, 10 s on the wrists) or when the tracker loses it.
+  - box_everywhere(name) puts a live box on the object in all three views.
+
+
+9. THE OLD LOCAL PLANNER (FALLBACK ONLY)
+----------------------------------------
+If RAX isn't available (rax_agent:=false, `claude` missing, or the model can't call tools),
+LocalAgent routes the text itself:
+  _understand(): ONE VLM call with PLANNER_SYSTEM + REAL_ROBOT_RULES + the live image + scene memory
+                 -> JSON {"type": command|question, "when": now|after, "reply", "actions": [...]}
+                 actions: pick_place, pick_up, put_in, place_at, move_object, hand_over, hover,
+                          move_arm, gripper, home, look, find, wait
+  _execute():    runs the actions in order through the same Skills.
+  Questions go to the Ask agent; "then / after that" queues the task instead of interrupting.
+This is the same code the MuJoCo simulator uses (local_daksha_rax/local_pipeline/run.py); only the
+backend changes (sim vs RosRobotBackend).
+
+
+10. THE MOTION PATH IN DETAIL (RosRobotBackend -> aruco_reach)
+-------------------------------------------------------------
+Before a motion tool runs (real_backend.call):
+  - It is refused if any motor is at or above motor_temp_stop_c (90 C). This applies always.
+  - Other critical alerts (person seen, battery, stale joints, a fault on that arm) refuse motion
+    only when safety.ignore_warnings is false. It is TRUE now, so they only show popups.
+_move_eef:
+  - The target is checked against the workspace box (x 0.10..0.85, y +-0.70, z <= 1.70) and the
+    table floor (table_z + 5 mm).
+  - If the hand must turn more than 45 deg: go to the fixed per-arm ready_joints pose first.
+  - MotionClient.move_to_pose(base_link goal, quat, tcp_speed <= 3 cm/s, joint_speed <= 0.3 rad/s,
+    min_tcp_z = table floor).
+  - If unreachable: retry with the approach tilted 15 / 30 deg in 8 directions (closest first,
+    starting with the angle that worked last time).
+  - aruco_reach's result: dry run -> DryRun ("execute is off"), stopped -> MotionStopped,
+    refused -> ValueError (the agent sees the message).
+_move_joints / _home: MotionClient.move_joints (home = gen2 HomeMoveService pose).
+_gripper:             MotionClient.gripper -> width_m + stalled_before_target (position-controlled;
+                      no force is measured).
+aruco_reach then publishes /joint_cmd only while EXECUTE is ON.
+
+
+11. SAFETY AND STOPPING
+-----------------------
+  - Dry run by default: Execute (on the page or /pipeline/set_execute) arms aruco_reach. In dry run
+    every skill plans and then says "Dry run, not moving: ...".
+  - STOP button / Esc / "stop" in the chat: robot.interrupt is set, the claude process is killed,
+    aruco_reach goals are cancelled, the queue is cleared and EXECUTE is switched OFF. The arm holds
+    where it stopped. Skills check the interrupt before every tool call and during VLM waits.
+  - SafetyMonitor (1 Hz) checks: motor temperatures, motor faults, live self-collision, the arms
+    getting close to each other, a TCP near or below the table, aruco_reach "not following" stops,
+    joints near their limits, people in the world camera (HOG detector), battery, stale data, and
+    a held object that seems dropped. Alerts are popups on the page and appear in daksha_status.
+    With ignore_warnings: true (the current config) they never block or stop motion; only the
+    90 C stop and the STOP button do.
+  - NOT modelled: objects on the table and people near the arm (no environment collision check).
+
+
+12. THE WEB PAGE AND ROS INTERFACE
+----------------------------------
+  Page:  GET  /api/pipeline/state | live.jpg | vlm.jpg
+         POST /api/pipeline/command | stop | execute | measure_table | allow_calibration
+         (+ model picker, grasp style, max replans, Ask API /api/info, /api/models, /api/track ...)
+  ROS:   /pipeline/command (String)       /pipeline/stop (Trigger)
+         /pipeline/set_execute (SetBool)  /pipeline/measure_table (Trigger)
+         /pipeline/status (String JSON, 2 Hz)   /pipeline/objects (String JSON)
+         TF base_link -> object_<name>, pipeline_goal, wrist_goal_<arm>
+         /ros_agent/request, ~/response, ~/describe_robot, ~/check_collision, ~/tracked_object
+
+
+13. KEY SETTINGS (config/pipeline.yaml)
+---------------------------------------
+  model 35b (one model everywhere; the UI picker changes it)   execute false (dry run at start)
+  objects / containers     hints only on the real robot, NOT an allowlist
+  camera.depth_topic ""    world depth off -> table-plane 3-D estimate
+  world_calibration(_left) per-arm world-camera calibration; allow_inaccurate_calibration true
+  scene.table_z 0.888, grasp_dz 0.014, pregrasp_dz 0.13, release_dz 0.17, grasp_approach 30 deg
+  grasp_style side; side_grasp_* (standoff 10 cm, reach 2 cm, start height 10 cm, candidates)
+  wrist_refine false (top/tilted refinement; the side wrist approach is on by default)
+  workspace box, motion speeds, ready_joints, approach_search_deg 30
+  max_replans 2, motor_temp_warn_c 80 / stop_c 90, safety.ignore_warnings true
+
+
+14. FILE MAP
+------------
+  ros_agent/agent_node.py      process entry: Ask agent node + wiring of pipeline, trackers, RAX
+  ros_agent/web.py             HTTP server for the page (Ask + /api/pipeline/*)
+  ros_agent/pipeline_node.py   ROS I/O, calibration, table, safety, objects/TF, execute, stop
+  ros_agent/real_backend.py    daksha_* tools on the real robot -> aruco_reach actions
+  ros_agent/rax_agent.py       RAX agent: Claude Code on Ollama + MCP tool server + extra tools
+  ros_agent/tracker.py         VLM + CSRT live box tracker
+  ros_agent/wrist_servo.py     fingertip / object points from wrist depth
+  ros_agent/safety_monitor.py  alerts
+  ros_agent/llm_client.py, tools.py, topics.py, camera.py, robot_model.py   Ask agent
+  local_daksha_rax/local_pipeline/agent.py      LocalAgent: queue, worker, chat, plan card, task log
+                                                (+ fallback planner)
+  local_daksha_rax/local_pipeline/robot.py      Skills: perceive, pick, place_at, put_in, home, ...
+  local_daksha_rax/local_pipeline/ollama_vlm.py VLM client (detect, ask_json)
+  local_daksha_rax/services/daksha_ros/backend.py  RAX backend for the real robot
+  local_daksha_rax/services/controller/frontend.py MCP JSON-RPC server (one dispatcher thread)
+  local_daksha_rax/harness/mcp_bridge.py        stdio <-> unix socket bridge for Claude Code
+  src/aruco_hand_eye/aruco_hand_eye/aruco_reach.py, motion_client.py, world_camera.py
+                                                motion server, its client, calibration and table
+  Runtime data: local_daksha_rax/runtime/ui_agent/ (transcript.jsonl, agent-workspace/frames,
+                claude/mcp.json + settings.json) and runtime/ros_pipeline/stream/ (latest.jpg,
+                vlm.jpg)
+
+
+15. THINGS THAT ARE OUT OF DATE OR WORTH KNOWING
+------------------------------------------------
+  - README.md describes the local planner path and "five tools". The DEFAULT path today is the RAX
+    agent (rax_agent param true), with the wrist cameras, trackers and the safety monitor added
+    on top.
+  - The daksha_pick_up description told to the model says "approaches from above (tilted)", but
+    the default style is side.
+  - Thin or flat objects (cables, cloth) are not handled by the side grasp. The fingers stay
+    >= 4 cm above the table, and a grasp narrower than 1.5 cm counts as empty.
+  - Every model call (agent reasoning, detection, tracker re-checks, wrist checks) goes to the same
+    Ollama model in sequence, so a task's speed is mostly model time.

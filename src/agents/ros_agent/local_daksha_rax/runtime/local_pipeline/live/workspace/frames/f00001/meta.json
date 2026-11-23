@@ -1,0 +1,94 @@
+{
+ "frame_id": "f00001",
+ "sim_time_s": 3.7599999999998075,
+ "cameras": {
+  "world": {
+   "rgb": "frames/f00001/world.png",
+   "intrinsics": {
+    "width": 640,
+    "height": 480,
+    "fx": 369.5675913154999,
+    "fy": 369.5675913154999,
+    "cx": 320.0,
+    "cy": 240.0,
+    "K": [
+     [
+      369.5675913154999,
+      0.0,
+      319.5
+     ],
+     [
+      0.0,
+      369.5675913154999,
+      239.5
+     ],
+     [
+      0.0,
+      0.0,
+      1.0
+     ]
+    ]
+   },
+   "extrinsics": {
+    "position": [
+     0.135,
+     0.0,
+     1.53
+    ],
+    "rotation_camera_to_robot": [
+     [
+      0.0,
+      -0.882948,
+      0.469472
+     ],
+     [
+      -1.0,
+      -0.0,
+      0.0
+     ],
+     [
+      0.0,
+      -0.469472,
+      -0.882948
+     ]
+    ],
+    "quat_camera_to_robot": [
+     0.686103,
+     -0.686103,
+     0.171065,
+     -0.171065
+    ],
+    "T_base_cam": [
+     [
+      0.0,
+      -0.882948,
+      0.469472,
+      0.135
+     ],
+     [
+      -1.0,
+      -0.0,
+      0.0,
+      0.0
+     ],
+     [
+      0.0,
+      -0.469472,
+      -0.882948,
+      1.53
+     ],
+     [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "source": "simulator",
+    "convention": "OpenCV: x right, y down, z forward; p_robot = position + R @ p_camera; K has pixel centres at integers (cx = cx_field - 0.5)"
+   },
+   "depth": "frames/f00001/world_depth.png",
+   "content_index": 1
+  }
+ }
+}

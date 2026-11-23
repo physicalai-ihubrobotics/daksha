@@ -1,0 +1,105 @@
+"""Shared browser-access gate for Daksha web UIs.
+
+Reads config/web_access.yaml to decide whether each UI requires the Daksha
+app's launch-key auth (false) or allows any browser (true).
+
+Flask apps (one call)
+---------------------
+    from daksha_web_access import setup_flask_gate
+    setup_flask_gate(app, "vr_management")
+
+FastAPI / Starlette apps
+------------------------
+    from daksha_web_access import is_access_enabled
+    # The FastAPI gate reads BROWSER_ACCESS from os.environ.
+
+http.server apps
+----------------
+    from daksha_web_access import guard_http_handler
+    guard_http_handler(HandlerClass, "data_collection")
+"""
+
+import logging
+import os
+
+import yaml
+
+_HERE = os.path.dirname(os.path.realpath(__file__))
+_CONFIG_PATH = os.path.join(_HERE, "config", "web_access.yaml")
+_WEBPAGE_DIR = os.path.normpath(os.path.join(_HERE, "..", "webpage"))
+
+log = logging.getLogger("daksha.web_access")
+
+
+def _load_config() -> dict:
+    try:
+        with open(_CONFIG_PATH) as f:
+            doc = yaml.safe_load(f) or {}
+        return doc.get("browser_access", {})
+    except FileNotFoundError:
+        log.warning("web_access.yaml not found at %s — defaulting to allow all", _CONFIG_PATH)
+        return {}
+    except Exception:
+        log.exception("Failed to read %s — defaulting to allow all", _CONFIG_PATH)
+        return {}
+
+
+def is_access_enabled(app_name: str) -> bool:
+    """Return True if *app_name* allows any browser (gate off)."""
+    config = _load_config()
+    enabled = config.get(app_name, True)
+    if not enabled:
+        log.info("%s: gate ACTIVE (launch-key auth required)", app_name)
+    return bool(enabled)
+
+
+def _load_gate_env() -> None:
+    """Load webpage/daksha.conf and webpage/.env into os.environ (setdefault)."""
+    for name in ("daksha.conf", ".env"):
+        path = os.path.join(_WEBPAGE_DIR, name)
+        try:
+            with open(path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        os.environ.setdefault(k.strip(), v.strip().strip("'\""))
+        except FileNotFoundError:
+            pass
+
+
+def setup_flask_gate(flask_app, app_name: str) -> None:
+    """Load gate secrets and register the Daksha gate on a Flask app.
+
+    When web_access.yaml says *app_name* is true, the gate is off and any
+    browser can open the UI. When false, only the Daksha Flutter app (with
+    its launch key) can authenticate.
+    """
+    from daksha_flask_gate import FlaskGateSettings, register_flask_gate
+
+    _load_gate_env()
+    if is_access_enabled(app_name):
+        os.environ["BROWSER_ACCESS"] = "true"
+    else:
+        os.environ.pop("BROWSER_ACCESS", None)
+    register_flask_gate(flask_app, FlaskGateSettings.from_env())
+    os.environ.pop("BROWSER_ACCESS", None)
+
+
+def guard_http_handler(handler_class, app_name: str):
+    """Wrap a BaseHTTPRequestHandler subclass to return 403 when disabled."""
+    if is_access_enabled(app_name):
+        return handler_class
+
+    def _send_blocked(self):
+        self.send_response(403)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(f"{app_name} is disabled in web_access.yaml\n".encode())
+
+    if getattr(handler_class, "do_GET", None):
+        handler_class.do_GET = _send_blocked
+    if getattr(handler_class, "do_POST", None):
+        handler_class.do_POST = _send_blocked
+
+    return handler_class

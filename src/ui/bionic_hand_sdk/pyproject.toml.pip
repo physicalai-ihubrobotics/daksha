@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bionic-hand"
+version = "0.1.0"
+description = "Python SDK for the SCS0009 left/right bionic hands"
+requires-python = ">=3.8"
+dependencies = ["pyserial>=3.5,<4.0"]
+
+[project.optional-dependencies]
+web = ["Flask>=3.0,<4.0"]
+
+[tool.setuptools]
+packages = ["bionic_hand"]

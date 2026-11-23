@@ -1,0 +1,90 @@
+
+# added here.
+
+applications:
+
+  - port: 8101
+    service: "VR Management UI"
+    file: "tele/vr_teleop/vr_teleop/main_scripts/vr_management_ui.py"
+    kind: http
+    command: ["ros2", "run", "vr_teleop", "vr_management_ui"]
+
+  - port: 8105
+    service: "Daksha Leader Controller UI"
+    file: "tele/gen2_leader/gen2_leader/leader_combined_ui.py"
+    kind: http
+    command: ["ros2", "run", "gen2_leader", "leader_combined_ui"]
+
+  - port: 8104
+    service: "Daksha VLA UI"
+    file: "vla/vla_codes/app.py"
+    kind: http
+    command: ["ros2", "launch", "daksha_vla_ui", "app.launch.py"]
+
+  - port: 8110
+    service: "gesture_management — Teach & Replay Console"
+    file: "gesture_management/gesture_management/gesture_management_app.py"
+    kind: http
+    command: ["ros2", "launch", "gesture_management", "gesture_management.launch.py"]
+
+  - port: 8120
+    service: "Camera Setup — map RealSense serials to roles"
+    file: "camera/camera_launch/camera_launch/camera_ui.py"
+    kind: http
+    command: ["ros2", "run", "camera_launch", "camera_ui"]
+
+  # - port: 8130
+  #   service: "joint_analyzer server"
+  #   file: "ui/analyzer/joint_analyzer/server.py"
+  #   kind: http
+  #   command: ["ros2", "run", "joint_analyzer", "server"]
+
+  # - port: 8131
+  #   service: "joint_analyzer plot server"
+  #   file: "ui/analyzer/joint_analyzer/plot_server.py"
+  #   kind: http
+  #   command: ["ros2", "run", "joint_analyzer", "plot_server"]
+
+  - port: 8140
+    service: "Bionic Hand UI"
+    file: "ui/bionic_hand_sdk/bionic_hand/web_node.py"
+    kind: http
+    command: ["ros2", "run", "bionic_hand", "hand_web_ui", "--ros-args", "-p", "web_port:=8140"]
+
+  - port: 8888
+    service: "Data Collection UI"
+    file: "ui/Clients_UI/daksha_data_collection/daksha_data_collection/web_data_management_ui.py"
+    kind: http
+    command: ["ros2", "launch", "daksha_data_collection", "data_collection.launch.py"]
+
+  - port: 8171
+    service: "ArUco Reach — IK, trajectories, /joint_cmd (motion server for the robot agent)"
+    file: "aruco_hand_eye/aruco_hand_eye/aruco_reach.py"
+    kind: http
+    command: ["ros2", "launch", "aruco_hand_eye", "aruco_reach.launch.py"]
+
+  - port: 8170
+    service: "Daksha Hand-Eye Calibration UI — wrist / world camera calibration"
+    file: "aruco_hand_eye/aruco_hand_eye/hand_eye_ui.py"
+    kind: http
+    command: ["ros2", "launch", "aruco_hand_eye", "daksha_hand_eye.launch.py"]
+
+  - port: 8150
+    service: "Robot Agent — RAX agent (Qwen 3.5 35B): plans, picks & places, cameras, safety"
+    file: "agents/ros_agent/ros_agent/agent_node.py"
+    kind: http
+    command: ["ros2", "launch", "ros_agent", "agent.launch.py"]
+
+  - port: 9002
+    service: "Arm recovery watchdog"
+    file: "gen2/gen2/arm_recovery_watchdog.py"
+    kind: process
+    match: "gen2/arm_recovery_watchdog"
+    command: ["ros2", "run", "gen2", "arm_recovery_watchdog"]
+
+  - port: 8160
+    service: "Motor ID Configurator"
+    file: "actuator_configures/actuator_configures/motor_web.py"
+    kind: http
+    command: ["ros2", "launch", "actuator_configures", "motor_web.launch.py"]
+

@@ -1,0 +1,28 @@
+# Static environment obstacles for collusion/collision_monitor.
+#
+# Poses are in the placo world frame = the URDF root link "world"
+# (base_link sits 0.22 m above it).
+# xyz in metres, rpy in radians (extrinsic xyz).
+#
+#   box       size: [x, y, z]          full extents
+#   sphere    size: [radius]
+#   cylinder  size: [radius, length]   axis along local z
+#
+# ignore_links: robot links that may legitimately touch this obstacle
+# (e.g. the torso mounted on the table) - those pairs are skipped.
+#
+# Placeholder geometry - measure your cell and replace these.
+
+obstacles:
+  - name: table
+    type: box
+    size: [1.2, 0.8, 0.03]
+    xyz: [0.45, 0.0, -0.35]
+    rpy: [0.0, 0.0, 0.0]
+    ignore_links: [base_link]
+
+  - name: back_wall
+    type: box
+    size: [0.02, 2.0, 2.0]
+    xyz: [-0.40, 0.0, 0.5]
+    rpy: [0.0, 0.0, 0.0]

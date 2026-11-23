@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd"
+schematypens="http://www.w3.org/2001/XMLSchema"?>
+
+<package format="3">
+
+  <name>daksha_hardware</name>
+
+  <version>0.0.0</version>
+
+  <description>
+  Differential Drive CANopen Hardware Interface
+  </description>
+
+  <maintainer email="fayaspallikkara@gmail.com">
+    fayas
+  </maintainer>
+
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>diagnostic_updater</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+
+  <!-- script/brake_push_mode_node.py -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>python3-serial</exec_depend>
+
+  <!-- launch/hardware.launch.py -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>daksha_description</exec_depend>
+  <exec_depend>daksha_lidar</exec_depend>
+  <exec_depend>daksha_bumper</exec_depend>
+  <exec_depend>robot_localization</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <!-- hardware.launch.py also uses daksha_bringup (ekf.yaml, scan_filter, imu_serial_bridge),
+       but daksha_bringup already exec_depends on this package; declaring it here too would be
+       a dependency cycle that colcon refuses to build. -->
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+
+    <build_type>ament_cmake</build_type>
+
+    <hardware_interface
+        plugin="${prefix}/plugin.xml"/>
+
+  </export>
+
+</package>

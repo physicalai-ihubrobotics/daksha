@@ -1,0 +1,41 @@
+{
+  "dataset_results": [],
+  "episodes": [
+    {
+      "classification": "KEEP",
+      "episode_index": 0,
+      "results": [
+        {
+          "check": "action_state_lag",
+          "frame_range": null,
+          "message": "No sufficiently strong positive-lag action/state correlation found. Best lag=1, correlation=0.106; required correlation >= 0.500.",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 1,
+      "results": [
+        {
+          "check": "action_state_lag",
+          "frame_range": null,
+          "message": "No sufficiently strong positive-lag action/state correlation found. Best lag=0, correlation=0.078; required correlation >= 0.500.",
+          "severity": "SOFT"
+        },
+        {
+          "check": "leading_trailing_idle",
+          "frame_range": [
+            0,
+            73
+          ],
+          "message": "Leading idle period is 2.43s; maximum allowed is 2.00s.",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    }
+  ],
+  "total_episodes": 2
+}

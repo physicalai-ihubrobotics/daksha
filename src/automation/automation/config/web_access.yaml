@@ -1,0 +1,33 @@
+# Controls which web UIs accept browser connections.
+#   true  — any browser can open the UI (gate is off)
+#   false — only the Daksha app can open it (requires launch key auth)
+# # Restart the service after changing its value.
+
+browser_access:
+  bring_up: True           # port 8100 — Main launch control panel
+  webpage: True             # port 8100 — Daksha FastAPI webpage
+  vr_management: True      # port 8101 — VR Management UI
+  leader_controller: True  # port 8102 — Leader Controller UI
+  leader_combined: True    # port 8105 — Leader Combined UI (normal/mirror via service)
+  vla: True                # port 8104 — Daksha VLA UI
+  gesture_management: True # port 8110 — Gesture Management
+  camera_setup: True       # port 8120 — Camera Setup
+  bionic_hand: True        # port 8140 — Bionic Hand UI
+  data_collection: True    # port 8888 — Data Collection UI
+  motor_configurator: True # port 8160 — Motor ID Configurator
+  ros_agent: True          # port 8150 — Robot Agent chat (LLM + world camera)
+
+
+# browser_access:
+#   bring_up: false           # port 8100 — Main launch control panel
+#   webpage: false             # port 8100 — Daksha FastAPI webpage
+#   vr_management: false      # port 8101 — VR Management UI
+#   leader_controller: false  # port 8102 — Leader Controller UI
+#   leader_combined: false    # port 8105 — Leader Combined UI (normal/mirror via service)
+#   vla: false                 # port 8104 — Daksha VLA UI
+#   gesture_management: false # port 8110 — Gesture Management
+#   camera_setup: false       # port 8120 — Camera Setup
+#   bionic_hand: false        # port 8140 — Bionic Hand UI
+#   data_collection: false    # port 8888 — Data Collection UI
+#   motor_configurator: false # port 8160 — Motor ID Configurator
+#   ros_agent: false          # port 8150 — Robot Agent chat (LLM + world camera)

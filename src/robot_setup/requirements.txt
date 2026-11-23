@@ -1,0 +1,118 @@
+# =============================================================================
+# Daksha workspace - Python requirements (the single list for ~/daksha_venv)
+#
+# Installed by robot_setup/scripts/install.sh with `uv pip install -r`.
+# Versions are pinned to what was installed when the list was generated
+# (AST scan of the workspace imports), except where noted:
+#   placo>=0.11       collusion needs the 0.11 API (coal 3)
+#   pin               unpinned: pin==3.8.0 needs cmeel-boost 1.89, placo 0.11
+#                     needs 1.90 - the resolver picks a compatible pin
+#   psutil, matplotlib  ">=": the old pins have no Python 3.12 wheels
+# =============================================================================
+
+# ── Core: robot stack + web UIs (loggers / gesture / navigation / camera) ────
+av==17.1.0
+Flask==3.1.2
+flask-cors==6.0.5
+numpy>=2,<2.3.0
+opencv-contrib-python==4.12.0.88
+pandas==2.3.3
+pin
+placo>=0.11                  # collusion needs the 0.11 API (coal 3)
+psutil>=5.9.0
+pyarrow==25.0.1
+pymongo==4.18.1
+pyserial==3.5
+pytest==6.2.5
+python-can==4.6.1
+damiao-motor                 # Damiao motor driver + `damiao` CLI
+PyYAML==6.0.3
+requests==2.25.1
+scipy==1.15.3
+trimesh==5.1.0
+websocket-client==1.9.0
+Werkzeug==3.1.8
+
+# ── Additional general-purpose libs used across the workspace (wheels OK) ─────
+draccus==0.11.6
+einops==0.8.2
+fastapi==0.143.0
+fsspec==2026.7.0
+httpx==0.28.1
+jsonlines==4.0.0
+matplotlib>=3.5.1
+meshcat==0.3.2
+msgpack==1.2.3
+packaging==25.0
+Pillow==12.3.0
+pydantic==2.14.1
+termcolor==3.3.0
+tqdm==4.70.1
+typing_extensions==4.16.0
+
+# -----------------------------------------------------------------------------
+# Everything below is imported somewhere in the workspace but is left COMMENTED
+# so `uv pip install -r requirements.txt` stays reliable. Uncomment per machine.
+# -----------------------------------------------------------------------------
+
+# ── Desktop GUI (needs Qt6; no aarch64 wheel — build from source or use x86) ──
+# PyQt6==6.11.0
+
+# ── ML / VLA stack (platform-specific; on Jetson torch/vision are NVIDIA builds,
+#    not plain PyPI — installing these from PyPI can replace/break them) ────────
+# torch==2.8.0
+# torchvision==0.23.0
+# torchcodec
+# torchdiffeq
+# transformers==5.19.0
+# accelerate==1.15.0
+# diffusers==0.35.0.dev0      # dev build — not on PyPI; install from git
+# tokenizers==0.23.3
+# safetensors==0.8.0
+# huggingface-hub==1.33.0
+# peft
+# gymnasium==1.4.0
+# onnx
+# onnxruntime
+# tensorflow-datasets
+# flash-attn                  # needs CUDA toolchain to build
+# lancedb
+# wandb==0.27.2
+# rerun-sdk
+# openai
+# qwen-vl-utils
+# datatrove
+# dm-tree
+# grpcio
+# casadi
+# deepdiff
+# Faker
+
+# ── Hardware / robot SDKs (install from vendor; many aren't on PyPI) ──────────
+# pyrealsense2==2.58.4.10922  # from the RealSense SDK build, not pip
+# dynamixel-sdk
+# scservo_sdk                 # Feetech SCServo SDK (vendor)
+# unitree_sdk2py
+# reachy2-sdk
+# hebi
+# evdev
+# hid
+# pynput
+# pygame
+# ina226
+# mock-serial
+
+# ── Simulation / research environments (not on PyPI / install from source) ────
+# isaacsim                    # NVIDIA Isaac Sim (omni / pxr come with it)
+# gr00t                       # NVIDIA Isaac GR00T
+# dm_control
+# metaworld
+# robocasa
+# robomme
+# libero
+# VLABench
+# gym_hil
+# foxglove
+
+# ── ROS-provided (installed via apt / rosdep, not pip) ────────────────────────
+# xacro

@@ -1,0 +1,13 @@
+{
+  "hard_failures": 4,
+  "pass_count": 0,
+  "per_check": {
+    "action_alignment_offset": 4,
+    "action_state_lag": 6,
+    "duration_outlier": 1
+  },
+  "reject_count": 4,
+  "review_count": 3,
+  "soft_warnings": 7,
+  "total_episodes": 7
+}

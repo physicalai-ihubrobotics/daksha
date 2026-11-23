@@ -1,0 +1,7 @@
+# right camera: T_cam_tcp (P_cam = T @ P_tcp), against right_tcp
+# exact simulator extrinsics
+matrix:
+- [0.375344816, 0.0, 0.926885251, -0.014389691]
+- [0.0, -1.0, 0.0, 0.000161]
+- [0.926885251, 0.0, -0.375344816, 0.113666208]
+- [0.0, 0.0, 0.0, 1.0]

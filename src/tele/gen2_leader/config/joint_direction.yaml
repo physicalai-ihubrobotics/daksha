@@ -1,0 +1,11 @@
+normal:
+  right_direction: [-1, -1, 1, 1, 1, 1, 1]
+  left_direction: [-1, 1, -1, -1, 1, 1, -1]
+  right_gripper_direction: 1
+  left_gripper_direction: -1
+
+mirror:
+  right_direction: [1, -1, 1, 1, -1, -1, -1]
+  left_direction: [1, 1, -1, -1, -1, -1, 1]
+  right_gripper_direction: -1
+  left_gripper_direction: 1

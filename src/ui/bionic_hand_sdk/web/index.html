@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daksha — Bionic Hand Control</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #eaf1fb; --panel: #ffffff; --panel2: #f7faff; --ink: #16263b; --muted: #5b6b80; --dim: #93a3b8;
+    --line: #e2eaf6; --line-soft: #eef3fa;
+    --accent: #1d6ff2; --accent-deep: #0f4fc4; --accent-soft: #e8f0fe; --accent-ink: #ffffff;
+    --ok: #16a34a; --ok-soft: #e7f7ee;
+    --warn: #f59e0b; --warn-soft: #fef3e2;
+    --err: #ef4444; --err-soft: #fdeaea;
+    --stop: #d81f2f;
+    --cyan: #0ea5e9; --indigo: #6366f1;
+    --track: #e2eaf6; --fill: #1d6ff2;
+    --radius: 14px; --radius-sm: 11px; --radius-pill: 999px;
+    --shadow: 0 1px 2px rgba(15,50,110,.05), 0 8px 24px rgba(15,50,110,.06);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 "Space Grotesk", system-ui, -apple-system, sans-serif;
+         background: var(--bg); color: var(--ink); }
+  header { position: sticky; top: 0; z-index: 10; background: var(--panel); border-bottom: 1px solid var(--line);
+           display: flex; align-items: center; gap: 12px; padding: 12px 20px; flex-wrap: wrap;
+           box-shadow: 0 2px 12px rgba(15,50,110,.06); }
+  header h1 { font-size: 19px; margin: 0; letter-spacing: 0.02em; font-weight: 700; color: var(--accent-deep); }
+  .pill { padding: 4px 12px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 600;
+          letter-spacing: 0.06em; background: var(--accent-soft); color: var(--muted); }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.err { background: var(--err-soft); color: var(--err); }
+  .spacer { flex: 1; }
+  main { max-width: 1180px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+  .grid2 { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px;
+            box-shadow: var(--shadow); }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); margin: 0 0 12px;
+       font-weight: 700; border-bottom: 1px solid var(--line-soft); padding-bottom: 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  label.f { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); font-weight: 500; }
+  select, input[type=number] { font: inherit; font-family: "IBM Plex Mono", monospace; color: var(--ink); background: var(--panel2);
+                               border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; min-width: 0;
+                               transition: border-color .2s, box-shadow .2s; }
+  select:focus, input[type=number]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(29,111,242,.12); }
+  button { font: inherit; font-family: "Space Grotesk", system-ui, sans-serif; cursor: pointer; border-radius: var(--radius-sm);
+           border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 8px 14px;
+           font-weight: 600; font-size: 14.5px; letter-spacing: 0.02em; transition: all .15s;
+           box-shadow: 0 1px 2px rgba(15,50,110,.05); }
+  button:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  button:active { transform: translateY(1px); }
+  button.primary { background: linear-gradient(135deg, #1f6ef2, #3b86f8); color: var(--accent-ink); border-color: var(--accent);
+                   font-weight: 600; box-shadow: 0 8px 20px rgba(29,111,242,.3); }
+  button.primary:hover { background: linear-gradient(135deg, #0f4fc4, #1f6ef2); }
+  button.small { padding: 4px 10px; font-size: 12px; border-radius: 8px; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+  .seg button:hover { background: var(--accent-soft); }
+  .seg button.on { background: linear-gradient(135deg, #1f6ef2, #3b86f8); color: var(--accent-ink); font-weight: 600; }
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; user-select: none; }
+  .switch input { display: none; }
+  .switch .knob { width: 42px; height: 24px; border-radius: 12px; background: var(--track); position: relative; transition: .15s; }
+  .switch .knob::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+                         background: #fff; transition: .15s; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+  .switch input:checked + .knob { background: var(--ok); }
+  .switch input:checked + .knob::after { left: 21px; }
+  .settings { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: end; }
+  input[type=range] { width: 100%; accent-color: var(--fill); }
+  .val { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); font-family: "IBM Plex Mono", monospace; }
+  .hand-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .hand-head h3 { margin: 0; font-size: 16px; font-weight: 700; color: var(--ink); }
+  .finger { display: grid; grid-template-columns: 22px 74px 1fr 46px auto; gap: 8px; align-items: center;
+            padding: 8px 0; border-top: 1px solid var(--line-soft); }
+  .finger .name { font-weight: 600; }
+  .finger .ids { display: block; font-size: 11px; color: var(--dim); font-weight: 400; font-family: "IBM Plex Mono", monospace; }
+  .finger .cur { height: 4px; background: var(--track); border-radius: 2px; margin-top: 3px; overflow: hidden; }
+  .finger .cur > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+  .finger input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+  .angles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 10px; font-size: 12px;
+            font-family: "IBM Plex Mono", monospace; }
+  .angles div { background: var(--panel2); border-radius: 8px; padding: 5px 8px; font-variant-numeric: tabular-nums;
+                border: 1px solid var(--line-soft); }
+  .angles b { color: var(--muted); font-weight: 500; margin-right: 4px; }
+  .gestures { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .gestures button { padding: 10px 8px; font-weight: 600; }
+  .hint { font-size: 12px; color: var(--dim); margin: 6px 0 0; }
+  .locked-note { display: none; color: var(--warn); font-weight: 600; font-size: 13px; }
+  body.locked .locked-note { display: block; }
+  body.locked .needs-motion button, body.locked .needs-motion input, body.locked .needs-motion select { opacity: .5; }
+  #log { max-height: 220px; overflow: auto; font: 12px/1.5 "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+         margin: 0; padding: 0; list-style: none; }
+  #log li { padding: 3px 0; border-bottom: 1px dashed var(--line-soft); }
+  #log .ok { color: var(--ok); } #log .warn { color: var(--warn); } #log .error { color: var(--err); }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: 90vw;
+           background: var(--stop); color: #fff; padding: 12px 28px; border-radius: 10px; font-weight: 600;
+           font: 600 14px/1.4 "Space Grotesk", system-ui, sans-serif;
+           box-shadow: 0 4px 20px rgba(0,0,0,.35); display: none; z-index: 20; text-align: center; }
+  @media (max-width: 520px) {
+    .finger { grid-template-columns: 22px 62px 1fr 40px; }
+    .finger .quick { grid-column: 2 / -1; }
+    .angles { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body class="locked">
+<header>
+  <h1>Daksha — Bionic Hand Control</h1>
+  <span id="connPill" class="pill">Disconnected</span>
+  <span id="jobPill" class="pill">Idle</span>
+  <span class="spacer"></span>
+</header>
+
+<main>
+  <section>
+    <h2>Connection &amp; safety</h2>
+    <div class="row">
+      <span id="handDetect" class="pill" style="font-size:13px; padding:6px 16px;">Scanning...</span>
+      <span id="leftHandPill" class="pill" style="font-size:12px; padding:5px 12px; display:none;">Left: --</span>
+      <span id="rightHandPill" class="pill" style="font-size:12px; padding:5px 12px; display:none;">Right: --</span>
+      <button id="connectBtn" class="primary" style="align-self:end">Connect</button>
+      <span class="spacer"></span>
+      <label class="switch" style="align-self:end"><input type="checkbox" id="enable"><span class="knob"></span>Enable movement</label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <span class="spacer"></span>
+      <button id="scanBtn" class="small">Re-scan motors</button>
+      <button id="pingBtn">Ping motors</button>
+    </div>
+    <!-- hidden elements kept for JS compatibility -->
+    <select id="port" style="display:none"></select>
+    <select id="baud" style="display:none"><option>1000000</option></select>
+  </section>
+
+  <section class="needs-motion">
+    <h2>Motion settings</h2>
+    <div class="settings">
+      <label class="f">Speed <span><span class="val" id="speedVal">500</span> / 1000</span>
+        <input type="range" id="speed" min="1" max="1000" value="500"></label>
+      <label class="f">Duration <span><span class="val" id="durVal">2.0</span> s</span>
+        <input type="range" id="duration" min="0" max="10" step="0.1" value="2"></label>
+      <label class="f">Motion style
+        <select id="motion">
+          <option value="auto">Auto (left staged, right smooth)</option>
+          <option value="direct">Direct - servo moves at speed</option>
+          <option value="smooth">Smooth - small steps</option>
+          <option value="staged">Staged - finger by finger</option>
+        </select></label>
+    </div>
+    <p class="locked-note">Movement is locked - connect and switch on "Enable movement".</p>
+  </section>
+
+  <div class="grid2 needs-motion" id="handCards"></div>
+
+  <section class="needs-motion">
+    <h2>Gestures</h2>
+    <div class="row" style="margin-bottom:10px">
+      <span class="seg" id="target">
+        <button data-v="left">Left</button><button data-v="right">Right</button><button data-v="both" class="on">Both</button>
+      </span>
+    </div>
+    <div class="gestures" id="gestures"></div>
+  </section>
+
+  <div class="grid2">
+    <section class="needs-motion">
+      <h2>Wave</h2>
+      <div class="row" style="margin-bottom:8px">
+        <label class="f">Cycles <input type="number" id="cycles" min="1" max="10" value="2" style="width:80px"></label>
+      </div>
+      <div class="gestures" id="waves"></div>
+      <p class="hint">Closes and reopens the whole hand. Uses the speed and duration above (direct motion unless you pick another style).</p>
+    </section>
+  </div>
+
+  <section>
+    <h2>Activity</h2>
+    <ul id="log"></ul>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let info = null, status = null, target = "both";
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.style.display = "none", 4500);
+}
+
+async function api(path, data) {
+  const opts = data === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) };
+  const res = await fetch(path, opts);
+  let json = {};
+  try { json = await res.json(); } catch (_) {}
+  if (!res.ok || json.ok === false) throw new Error(json.error || `Request failed (${res.status})`);
+  return json;
+}
+const run = (path, data) => api(path, data).then(refresh).catch(e => toast(e.message));
+
+function motionSettings() {
+  return { speed: +$("speed").value, duration: +$("duration").value, motion: $("motion").value };
+}
+
+// ---------- build static UI ----------
+function buildHandCard(hand) {
+  const card = document.createElement("section");
+  card.innerHTML = `
+    <div class="hand-head">
+      <h3>${hand === "left" ? "Left" : "Right"} hand</h3>
+      <span class="pill" data-pose></span><span class="pill" data-moving style="display:none">Moving</span>
+      <span class="spacer"></span>
+      <button class="small" data-all>Select all</button>
+    </div>
+    <div data-fingers></div>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" data-move>Move selected fingers</button>
+      <button data-preset="0">All open</button>
+      <button data-preset="100">All closed</button>
+    </div>
+    <p class="hint">Slider = target: 0% open, 100% closed. Only ticked fingers move. Grey bar = current commanded position.</p>
+    <div class="angles" data-angles></div>`;
+  const list = card.querySelector("[data-fingers]");
+  for (const f of info.fingers) {
+    const row = document.createElement("div");
+    row.className = "finger"; row.dataset.finger = f;
+    row.innerHTML = `
+      <input type="checkbox" aria-label="Select ${f}">
+      <span class="name">${f}<span class="ids"></span></span>
+      <div><input type="range" min="0" max="100" value="0" aria-label="${f} closure"><div class="cur"><i></i></div></div>
+      <span class="val">0%</span>
+      <span class="quick"><button class="small" data-set="0">Open</button> <button class="small" data-set="100">Close</button></span>`;
+    const box = row.querySelector("input[type=checkbox]");
+    const slider = row.querySelector("input[type=range]");
+    const val = row.querySelector(".val");
+    slider.oninput = () => { val.textContent = slider.value + "%"; box.checked = true; };
+    row.querySelectorAll("[data-set]").forEach(b => b.onclick = () => {
+      slider.value = b.dataset.set; slider.oninput();
+    });
+    list.appendChild(row);
+  }
+  card.querySelector("[data-all]").onclick = () => {
+    const boxes = [...card.querySelectorAll(".finger input[type=checkbox]")];
+    const all = boxes.every(b => b.checked);
+    boxes.forEach(b => b.checked = !all);
+  };
+  card.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => {
+    card.querySelectorAll(".finger").forEach(r => {
+      const s = r.querySelector("input[type=range]"); s.value = b.dataset.preset; s.oninput();
+    });
+  });
+  card.querySelector("[data-move]").onclick = () => {
+    const payload = { hand, ...motionSettings() };
+    card.querySelectorAll(".finger").forEach(r => {
+      if (r.querySelector("input[type=checkbox]").checked)
+        payload[r.dataset.finger.toLowerCase()] = r.querySelector("input[type=range]").value / 100;
+    });
+    run("/api/fingers", payload);
+  };
+  card.dataset.hand = hand;
+  return card;
+}
+
+function buildStatic() {
+  const cards = $("handCards");
+  cards.append(buildHandCard("left"), buildHandCard("right"));
+  for (const g of info.gestures) {
+    const b = document.createElement("button");
+    b.textContent = g.toLowerCase().replace(/(^|[\s/(+])\w/g, s => s.toUpperCase());
+    b.onclick = () => run("/api/gesture", { name: g, hand: target, parallel: true, ...motionSettings() });
+    $("gestures").appendChild(b);
+  }
+  const waveNames = { left: "Left only", right: "Right only", left_to_right: "Left → Right", right_to_left: "Right → Left", both: "Both together" };
+  for (const w of info.waves) {
+    const b = document.createElement("button");
+    b.textContent = waveNames[w] || w;
+    b.onclick = () => run("/api/wave", { sequence: w, cycles: +$("cycles").value, ...motionSettings() });
+    $("waves").appendChild(b);
+  }
+}
+
+// ---------- status refresh ----------
+function renderDetection() {
+  if (!status) return;
+  const det = $("handDetect");
+  const lp = $("leftHandPill");
+  const rp = $("rightHandPill");
+  const scan = status.hand_scan || {};
+
+  if (status.connected) {
+    det.textContent = "Connected";
+    det.className = "pill ok";
+  } else if (status.detected) {
+    det.textContent = "Hand Detected";
+    det.className = "pill ok";
+  } else {
+    det.textContent = "Hand Not Detected";
+    det.className = "pill err";
+  }
+
+  if (scan.scanned) {
+    lp.style.display = "";
+    rp.style.display = "";
+    lp.textContent = scan.left ? "Left: " + scan.left_ids.length + "/8" : "Left: Not Found";
+    lp.className = "pill " + (scan.left ? "ok" : "err");
+    rp.textContent = scan.right ? "Right: " + scan.right_ids.length + "/8" : "Right: Not Found";
+    rp.className = "pill " + (scan.right ? "ok" : "err");
+  } else {
+    lp.style.display = "none";
+    rp.style.display = "none";
+  }
+}
+
+function render() {
+  if (!status) return;
+  const conn = $("connPill");
+  conn.textContent = status.connected ? "Connected" : "Disconnected";
+  conn.className = "pill " + (status.connected ? "ok" : "");
+  $("connectBtn").textContent = status.connected ? "Disconnect" : "Connect";
+  renderDetection();
+  const job = $("jobPill");
+  job.textContent = status.busy ? `Running: ${status.job}` : (status.enabled ? "Ready" : "Movement locked");
+  job.className = "pill " + (status.busy ? "warn" : status.enabled ? "ok" : "");
+  $("enable").checked = status.enabled;
+  document.body.classList.toggle("locked", !(status.connected && status.enabled));
+
+  for (const card of $("handCards").children) {
+    const h = status.hands[card.dataset.hand];
+    const pose = card.querySelector("[data-pose]");
+    pose.textContent = h.pose_known ? "Position known" : "Position unknown";
+    pose.className = "pill " + (h.pose_known ? "ok" : "warn");
+    card.querySelector("[data-moving]").style.display = h.moving ? "" : "none";
+    card.querySelectorAll(".finger").forEach(r => {
+      const f = r.dataset.finger;
+      r.querySelector(".ids").textContent = "IDs " + h.fingers[f].join(", ");
+      r.querySelector(".cur > i").style.width = Math.round(h.closure[f] * 100) + "%";
+    });
+    card.querySelector("[data-angles]").innerHTML = h.ids
+      .map(id => `<div><b>ID ${id}</b>${h.pose[id].toFixed(1)}°</div>`).join("");
+  }
+  $("log").innerHTML = status.log
+    .map(l => `<li class="${l.level}">${l.t}  ${l.msg.replace(/</g, "&lt;")}</li>`).join("");
+}
+
+async function refresh() {
+  try { status = await api("/api/status"); render(); }
+  catch (e) { $("connPill").textContent = "Server offline"; $("connPill").className = "pill err"; }
+}
+
+async function loadPorts() {
+  try {
+    const d = await api("/api/ports");
+    const sel = $("port"), prev = sel.value;
+    sel.innerHTML = d.ports.map(p => `<option>${p}</option>`).join("");
+    sel.value = d.ports.includes(prev) ? prev : (d.ports.includes(info.default_port) ? info.default_port : d.ports[0]);
+  } catch (e) { toast(e.message); }
+}
+
+async function autoConnect() {
+  try {
+    const d = await api("/api/detect");
+    if (d.detected && d.port) {
+      await run("/api/connect", { port: d.port, baud: 1000000 });
+    } else {
+      toast("Bionic hand not detected. Check USB connection.");
+    }
+  } catch (e) { toast(e.message); }
+}
+
+// ---------- wire controls ----------
+$("speed").oninput = () => $("speedVal").textContent = $("speed").value;
+$("duration").oninput = () => $("durVal").textContent = (+$("duration").value).toFixed(1);
+$("connectBtn").onclick = () => status && status.connected
+  ? run("/api/disconnect", {})
+  : autoConnect();
+$("scanBtn").onclick = () => run("/api/scan", {});
+$("enable").onchange = (e) => run("/api/enable", { enabled: e.target.checked });
+$("pingBtn").onclick = () => run("/api/ping", {});
+$("target").querySelectorAll("button").forEach(b => b.onclick = () => {
+  target = b.dataset.v;
+  $("target").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+});
+
+(async () => {
+  info = await api("/api/info");
+  $("baud").value = String(info.default_baud);
+  buildStatic();
+  await loadPorts();
+  await refresh();
+  setInterval(refresh, 700);
+  // Auto-connect if hand is detected and not already connected
+  if (status && !status.connected && status.detected && status.detected_port) {
+    autoConnect();
+  }
+})();
+</script>
+</body>
+</html>

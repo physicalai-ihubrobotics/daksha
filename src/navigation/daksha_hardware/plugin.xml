@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+
+<!--
+===============================================================================
+
+This file tells pluginlib:
+
+"I contain a ROS2 hardware plugin."
+
+Think of it as registering our driver with ROS.
+
+===============================================================================
+-->
+
+<library path="daksha_hardware">
+
+
+    <class
+        name="daksha_hardware/DraxHardware"
+        type="drax_hardware::DraxHardware"
+        base_class_type="hardware_interface::SystemInterface">
+
+        <description>
+            Differential Drive  Hardware Interface
+        </description>
+
+    </class>
+
+</library>

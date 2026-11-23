@@ -1,0 +1,13 @@
+{
+  "root": "/home/ihub/Desktop/rax/local_daksha_rax/runtime/sessions/q1",
+  "task": "fruit_to_bowl",
+  "robot": "daksha_sim_ollama",
+  "backend_options": {},
+  "observation_profile": "rgbd",
+  "episodes": 24,
+  "formal_episodes": 10,
+  "agent_model": null,
+  "agent_effort": "high",
+  "session_seconds": 21600,
+  "subagents": false
+}

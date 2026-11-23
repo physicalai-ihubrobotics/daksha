@@ -1,0 +1,13 @@
+Daksha RAX (MuJoCo)
+
+Parts of this project are adapted from RAX (https://github.com/robot-agent-exploration/rax),
+Copyright 2026 RAX contributors, licensed under the Apache License 2.0 (see LICENSE):
+- harness/mcp_bridge.py, services/json_io.py, services/controller/errors.py (copied)
+- services/calibration.py (adapted from the real/franka branch's services/franka/calibration.py)
+- services/controller/frontend.py, harness/launcher.py, services/backends.py (adapted)
+- agent_skills/{manual-robot-control, autonomous-control, experience-memory,
+  object-localization, camera-inspection} (adapted from rax/skills)
+
+assets/daksha/ is a copy of the Daksha robot description from
+~/uni/daksha/src/daksha_description_full_body (and gen2/config/arm_limit.yaml); the originals
+are not modified.

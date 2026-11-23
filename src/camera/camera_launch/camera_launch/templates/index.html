@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="lamp" id="lamp"></span>
+      <h1>Camera Setup</h1>
+    </div>
+    <div class="head-actions">
+      <span class="state-badge" id="scanBadge">DEVICES <b id="devCount">0</b></span>
+      <button class="b-ghost" id="btnRescan" onclick="rescan()">Rescan hardware</button>
+      <button class="b-primary" id="btnSave" onclick="save()">Save to cameras.yaml</button>
+    </div>
+  </header>
+
+  <div id="note" class="note" hidden></div>
+
+  <div class="layout">
+    <!-- Detected cameras ------------------------------------------------- -->
+    <section class="card">
+      <div class="eyebrow">Detected cameras</div>
+      <p class="sub">Drag a live tile into a role on the right. Wiggle a camera to see which tile moves.</p>
+      <div id="devices" class="devgrid"></div>
+      <div id="devEmpty" class="empty" hidden>No RealSense cameras detected.</div>
+    </section>
+
+    <!-- Role slots ------------------------------------------------------- -->
+    <section class="card">
+      <div class="eyebrow">Robot camera roles</div>
+      <p class="sub">Each slot is written to its block's <span class="mono">serial_no</span> in cameras.yaml.</p>
+      <div class="slots">
+        {% for role in roles %}
+        <div class="slot" data-role="{{ role.key }}" id="slot-{{ role.key }}">
+          <div class="slot-drop" data-role="{{ role.key }}">
+            <div class="slot-thumb">
+              <span class="slot-empty">drop</span>
+              <img class="slot-feed" alt="feed" hidden>
+            </div>
+          </div>
+          <div class="slot-info">
+            <div class="slot-label">{{ role.label }}</div>
+            <div class="slot-serial mono"></div>
+            <div class="slot-hint">{{ role.hint }}</div>
+          </div>
+          <button class="b-x" title="Clear slot" onclick="clearSlot('{{ role.key }}')">&times;</button>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script>
+const ROLES = {{ roles | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

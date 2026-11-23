@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logger Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="lamp" id="lamp"></span>
+      <h1>Logger Control<small>joint_state_logger &middot; record &middot; replay &middot; timeline</small></h1>
+    </div>
+    <span class="state-badge" id="connBadge">PARQUET <b id="connText">…</b></span>
+  </header>
+
+  <div id="note" class="note" hidden></div>
+
+  <!-- RECORDING session (start / stop / new file) ---------------------- -->
+  <section class="card">
+    <div class="eyebrow">Recording session</div>
+    <div class="session-row">
+      <div class="sess-state">
+        <span class="recdot" id="recDot"></span>
+        <div>
+          <div class="big" id="recState">—</div>
+          <div class="sub mono" id="sessFile">—</div>
+        </div>
+      </div>
+      <div class="sess-btns">
+        <button id="btnStart" class="btn primary">● Start</button>
+        <button id="btnStop" class="btn danger">■ Stop</button>
+        <button id="btnNew" class="btn">＋ New session</button>
+      </div>
+    </div>
+    <div class="dir-row">
+      <div class="fld grow"><label>Data directory</label>
+        <input id="dirInput" class="inp mono" type="text" placeholder="~/.ros/joint_state_logger_logs"></div>
+      <button id="btnDir" class="btn">Change dir</button>
+    </div>
+    <div id="sessNote" class="sub mono">—</div>
+
+    <div class="eyebrow" style="margin-top:18px">Saved sessions</div>
+    <div class="table-wrap">
+      <table class="tbl" id="sessTbl">
+        <thead><tr><th>File</th><th class="num">Size</th><th>Saved</th><th class="act">Actions</th></tr></thead>
+        <tbody id="sessBody"><tr><td colspan="4" class="muted">—</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- WHICH data to record --------------------------------------------- -->
+  <section class="card">
+    <div class="eyebrow">Which data to record</div>
+    <div class="toggles" id="toggles">
+      <label class="toggle"><input type="checkbox" data-stream="joint_states"><span class="tg"></span>
+        <div class="tgtxt"><b>joint_states</b><small>position · velocity · effort</small></div></label>
+      <label class="toggle"><input type="checkbox" data-stream="motor_status"><span class="tg"></span>
+        <div class="tgtxt"><b>motor_status</b><small>mos / rotor temperatures</small></div></label>
+      <label class="toggle"><input type="checkbox" data-stream="gesture_status"><span class="tg"></span>
+        <div class="tgtxt"><b>gesture_status</b><small>replay progress · loops</small></div></label>
+    </div>
+    <div class="sub mono" id="recNote">—</div>
+  </section>
+
+  <!-- WHERE the data is saved ------------------------------------------- -->
+  <section class="card">
+    <div class="eyebrow">Storage location</div>
+    <div class="kv">
+      <div><label>Session file</label><div class="mono big" id="storePath">—</div></div>
+      <div><label>File size</label><div class="mono big" id="storeSize">—</div></div>
+      <div><label>Status</label><div class="mono big" id="status">—</div></div>
+    </div>
+    <div id="collList" class="colls"></div>
+    <div id="csvBlock" hidden>
+      <div class="eyebrow" style="margin-top:18px">CSV fallback (pyarrow not installed)</div>
+      <div class="mono" id="csvDir">—</div>
+      <div id="csvFiles" class="csvfiles"></div>
+    </div>
+  </section>
+
+  <!-- REPLAY trigger ---------------------------------------------------- -->
+  <section class="card">
+    <div class="eyebrow">Replay a recording</div>
+    <div class="replay-form">
+      <div class="fld grow"><label>Recording name</label>
+        <input id="rName" class="inp mono" type="text" placeholder="e.g. wave_hello" autocomplete="off"></div>
+      <div class="fld"><label>Loops <small>(0 = ∞)</small></label>
+        <input id="rLoops" class="inp mono" type="number" min="0" step="1" value="1"></div>
+      <div class="fld"><label>Speed ×</label>
+        <input id="rSpeed" class="inp mono" type="number" min="0.1" step="0.1" value="1.0"></div>
+      <div class="fld"><label>Interval s</label>
+        <input id="rInterval" class="inp mono" type="number" min="0" step="0.5" value="0"></div>
+      <div class="fld grow"><label>Output topic</label>
+        <input id="rTopic" class="inp mono" type="text" value="/joint_cmd"></div>
+      <div class="fld btns">
+        <button id="rPlay" class="btn primary">▶ Play</button>
+        <button id="rStop" class="btn danger">■ Stop</button>
+      </div>
+    </div>
+    <div id="replayNote" class="sub mono">—</div>
+
+    <!-- live progress -->
+    <div id="replayLive" class="replay-live" hidden>
+      <div class="rl-head">
+        <span class="rl-name mono" id="rlName">—</span>
+        <span class="rl-loop mono" id="rlLoop">—</span>
+      </div>
+      <div class="bar"><div class="bar-fill" id="rlBar"></div></div>
+      <div class="rl-meta mono" id="rlMeta">—</div>
+    </div>
+  </section>
+
+  <!-- Latest records ---------------------------------------------------- -->
+  <div class="grid">
+    <section class="card">
+      <div class="eyebrow">Gesture playing</div>
+      <div class="big" id="gName">—</div>
+      <div class="sub mono" id="gMeta">no data</div>
+    </section>
+    <section class="card">
+      <div class="eyebrow">Latest joint snapshot</div>
+      <div class="big" id="jCount">—</div>
+      <div class="sub mono" id="jMeta">no data</div>
+    </section>
+    <section class="card">
+      <div class="eyebrow">Hottest motor</div>
+      <div class="big" id="mTemp">—</div>
+      <div class="sub mono" id="mMeta">no data</div>
+    </section>
+  </div>
+
+  <!-- TIMELINE graphs --------------------------------------------------- -->
+  <section class="card">
+    <div class="eyebrow">Timeline</div>
+    <div class="tl-controls">
+      <div class="seg" id="tlMetric">
+        <button data-metric="joint_pos" class="on">Joint position</button>
+        <button data-metric="joint_vel">Joint velocity</button>
+        <button data-metric="joint_eff">Joint effort</button>
+        <button data-metric="motor_temp">Motor temp</button>
+        <button data-metric="gesture">Gesture</button>
+      </div>
+      <div class="seg" id="tlPoints">
+        <button data-points="120">120</button>
+        <button data-points="240" class="on">240</button>
+        <button data-points="500">500</button>
+      </div>
+      <label class="pausebox"><input type="checkbox" id="tlLive" checked> live</label>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="tlCanvas" height="300"></canvas>
+      <div id="tlEmpty" class="chart-empty" hidden>no data yet</div>
+    </div>
+    <div id="tlLegend" class="legend"></div>
+  </section>
+
+  <!-- REPLAY history ---------------------------------------------------- -->
+  <section class="card">
+    <div class="eyebrow">Replay history</div>
+    <div class="table-wrap">
+      <table class="tbl" id="histTbl">
+        <thead><tr>
+          <th>Recording</th><th class="num">Times played</th>
+          <th class="num">Total loops</th><th>Last mode</th><th>Last played</th>
+        </tr></thead>
+        <tbody id="histBody"><tr><td colspan="5" class="muted">—</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

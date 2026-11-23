@@ -1,0 +1,17 @@
+# Install:  sudo cp drax_can_watchdog.service /etc/systemd/system/
+#           sudo systemctl daemon-reload && sudo systemctl enable --now drax_can_watchdog
+# Logs:     journalctl -u drax_can_watchdog -f
+[Unit]
+Description=Drax CAN safety watchdog (zero speed on controller stall, CAN link recovery)
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -u /home/jetson/base_test_ws/src/drax_hardware/tools/drax_can_watchdog.py --iface can0 --bitrate 500000 --restart-ms 100 --nodes 1 2 --stall 0.5
+Restart=always
+RestartSec=1
+Nice=-10
+
+[Install]
+WantedBy=multi-user.target

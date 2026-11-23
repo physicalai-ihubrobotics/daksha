@@ -1,0 +1,35 @@
+# VR-input joint limits for kinematics/ik_node.
+#
+# These clamp the joint angles produced from the VR controller pose BEFORE
+# they are published on /joint_states and /joint_cmd. They affect ONLY the VR
+# teleop (URDF IK) output of this node - not the joint_command_limiter, direct
+# motor control, VLA, or anything else downstream.
+#
+# Currently only joint_1 of each arm is limited (the shoulder base joint).
+#
+# Live-tunable:  ros2 param set /dual_arm_ik joint1_limit.right.max 2.5
+#
+# units: "rad" (default) or "deg" - the min/max below are interpreted in this
+# unit. The published command is in radians regardless.
+
+/**:
+  ros__parameters:
+
+    joint1_limit:
+      # Master switch. false = publish the raw IK solution unclamped.
+      enabled: true
+
+      # Interpret the min/max values below as radians or degrees.
+      units: "rad"
+
+      # right_joint_1: clamped to a maximum of 2.5. The lower bound is left
+      # wide (~ -2 pi) so only the upper limit bites.
+      right:
+        min: 0.0
+        max: 2.5
+
+      # left_joint_1: clamped to a minimum of -2.5. The upper bound is left
+      # wide (~ 2 pi) so only the lower limit bites.
+      left:
+        min: -2.5
+        max: 0.0

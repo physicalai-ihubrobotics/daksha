@@ -1,0 +1,300 @@
+# vr_teleop
+
+Meta Quest → ROS 2 teleoperation bridge. A Unity app on the headset streams the head
+and controller poses over TCP; this package receives them via the Unity
+[ROS-TCP-Endpoint](https://github.com/Unity-Technologies/ROS-TCP-Endpoint) server and
+republishes them as TF frames that the rest of the robot stack can consume.
+
+Built and tested on **ROS 2 Jazzy**.
+
+---
+
+## Build
+
+```bash
+cd ~/gen2_quest/rostcpend
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-select vr_teleop
+source install/setup.bash
+```
+
+Re-run `source install/setup.bash` in every new terminal.
+
+---
+
+## Quick start
+
+Put the workstation and the headset on the same network, note the workstation's IP
+(`hostname -I`), and enter it as the ROS IP in the Unity app on the Quest. Then:
+
+```bash
+ros2 launch vr_teleop vr_control_switch.launch.py
+```
+
+That starts the TCP endpoint on `0.0.0.0:10000` plus the TF broadcaster. Confirm poses
+are arriving:
+
+```bash
+ros2 topic hz /quest/head
+ros2 run tf2_tools view_frames        # or just open RViz2 and add a TF display
+```
+
+---
+
+## Data flow
+
+```
+Quest (Unity)  --TCP :10000-->  default_server_endpoint  --/quest/*-->  TF broadcaster  --> /tf
+```
+
+**Topics published by the endpoint** (all `geometry_msgs/PoseStamped`, in Unity's
+left-handed frame):
+
+| Topic | Source |
+|---|---|
+| `/quest/head` | headset |
+| `/quest/left/pose` | left controller |
+| `/quest/right/pose` | right controller |
+
+**Controller inputs published by the endpoint** (`sensor_msgs/Joy`):
+
+| Topic | Source |
+|---|---|
+| `/quest/left/joy` | left controller buttons/axes |
+| `/quest/right/joy` | right controller buttons/axes |
+
+**TF frames published** (children of `world`, in ROS FLU convention):
+`quest_head`, `quest_left`, `quest_right`.
+
+---
+
+## What values come from the Quest
+
+The Unity app streams two kinds of data per frame.
+
+### Pose (`geometry_msgs/PoseStamped`)
+
+In **Unity's left-handed, Y-up frame**, metres / unit quaternion:
+
+| Field | Meaning |
+|---|---|
+| `header.stamp` | capture time |
+| `pose.position.x` / `.y` / `.z` | head or controller position in Unity space |
+| `pose.orientation.x` / `.y` / `.z` / `.w` | orientation quaternion in Unity space |
+
+`quest_tf` converts this to the ROS **FLU / Z-up** frame when it publishes TF:
+
+```
+ROS x =  Unity z        ROS qx =  Unity qz
+ROS y = -Unity x        ROS qy = -Unity qx
+ROS z =  Unity y        ROS qz =  Unity qy
+                        ROS qw = -Unity qw
+```
+
+### Controller input (`sensor_msgs/Joy`)
+
+| Index | Value | Range |
+|---|---|---|
+| `axes[2]` | analog trigger | `1.0` = released → `0.0` = fully pressed |
+
+`vr_gripper_ctrl` inverts it (`1 - axes[2]`, so `0` = open hand, `1` = squeezed) and maps
+it to the gripper joints. **Only `axes[2]` is used by this package** — any other axes or
+buttons the Unity app includes in the `Joy` message are currently ignored. To see the raw
+layout for your Unity build:
+
+```bash
+ros2 topic echo /quest/right/joy
+```
+
+---
+
+## Launch files
+
+| Launch file | Starts | Use when |
+|---|---|---|
+| `vr_control_switch.launch.py` | endpoint + `quest_tf_switch` | **Default.** Normal or mirrored, switchable at runtime. |
+| `vr_control.launch.py` | endpoint + `quest_tf` | Normal mapping only, fixed. |
+| `vr_control_mirror.launch.py` | endpoint + `quest_tf_mirror` | Mirrored mapping only, fixed. |
+| `endpoint.launch.py` | endpoint only | You want to run a TF node yourself, or debug the raw `/quest/*` topics. |
+
+```bash
+ros2 launch vr_teleop vr_control_switch.launch.py
+ros2 launch vr_teleop vr_control.launch.py
+ros2 launch vr_teleop vr_control_mirror.launch.py
+ros2 launch vr_teleop endpoint.launch.py
+```
+
+Nodes can also be run individually:
+
+```bash
+ros2 run vr_teleop default_server_endpoint --ros-args -p ROS_IP:=0.0.0.0 -p ROS_TCP_PORT:=10000
+ros2 run vr_teleop quest_tf_switch
+```
+
+---
+
+## Normal vs. mirrored
+
+**Normal** is the direct Unity → ROS conversion. The robot is treated as if you were
+sitting inside it: your left hand drives `quest_left`.
+
+**Mirrored** reflects everything across the robot's forward axis and swaps the two
+controllers, so the robot moves like your reflection. Use this when you are standing in
+front of the robot watching it head-on — your left hand then drives the arm that appears
+on your left.
+
+One deliberate exception: in mirrored mode the **head's yaw is not mirrored**. Position
+is reflected, but turning your head left still turns `quest_head` left, because a
+reversed gaze direction is disorienting to drive. Set `mirror_head_yaw:=true` if you
+want a strict geometric mirror instead.
+
+---
+
+## `quest_tf_switch` (recommended node)
+
+Does the job of both `quest_tf` and `quest_tf_mirror`, with the mode selectable while
+running.
+
+### Service
+
+Flip modes without restarting anything:
+
+```bash
+ros2 service call /quest_tf_switch/set_mirror std_srvs/srv/SetBool "{data: true}"    # mirrored
+ros2 service call /quest_tf_switch/set_mirror std_srvs/srv/SetBool "{data: false}"   # normal
+```
+
+The response `message` field reports the mode now in effect (`NORMAL` / `MIRRORED`).
+
+### State topic
+
+The current mode is published on `/quest_tf_switch/mirror_state`
+(`std_msgs/Bool`, `true` = mirrored). It uses latched (`TRANSIENT_LOCAL`) QoS, so a node
+that subscribes late immediately receives the current value instead of waiting for the
+next change:
+
+```bash
+ros2 topic echo /quest_tf_switch/mirror_state
+```
+
+### Parameters
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `mirror` | bool | `false` | Mode at startup. |
+| `mirror_head_yaw` | bool | `false` | If `true`, mirror the head's yaw too (strict geometric mirror). |
+
+```bash
+ros2 run vr_teleop quest_tf_switch --ros-args -p mirror:=true
+```
+
+### Legacy nodes
+
+`quest_tf` (normal) and `quest_tf_mirror` (mirrored) are the original fixed-mode nodes.
+They still work and behave identically to the corresponding mode of `quest_tf_switch`;
+they are kept so the older launch files keep working. Prefer `quest_tf_switch` for new
+work.
+
+---
+
+## Endpoint parameters
+
+| Parameter | Type | Default | Meaning |
+|---|---|---|---|
+| `ROS_IP` | string | `0.0.0.0` | Interface the TCP server binds to. `0.0.0.0` accepts any. |
+| `ROS_TCP_PORT` | int | `10000` | TCP port. Must match the Unity app's setting. |
+
+---
+
+## Coordinate conversion
+
+Unity is left-handed (X right, Y up, Z forward); ROS is right-handed FLU (X forward,
+Y left, Z up). The normal mapping is the standard one used by Unity's
+`ROS-TCP-Connector`:
+
+```
+position: (x, y, z)     = ( uz, -ux,  uy)
+rotation: (x, y, z, w)  = ( uz, -ux,  uy, -uw)
+```
+
+The negated `w` is required, not a typo: relabelling axes across a handedness change is
+an improper transform, so the rotation direction has to be reversed.
+
+Mirroring reflects that result through the plane normal to ROS Y. Reflecting a rotation
+negates its X and Z axis components, which reduces to dropping every sign flip above:
+
+```
+position: (x, y, z)     = ( uz,  ux,  uy)
+rotation: (x, y, z, w)  = ( uz,  ux,  uy,  uw)
+```
+
+### This conversion happens exactly once
+
+The TF nodes are the only place it is applied. Everything downstream of them —
+`world -> quest_left` / `quest_right` in TF, and the `/left/pose` and `/right/pose`
+topics `quest_tf_to_pose` derives from those frames — is **already in ROS FLU**.
+
+Consumers must use those poses as-is. Converting a second time is silent: position
+looks fine (a consumer that passes position through is unaffected) while orientation
+comes out inverted on every axis, so RViz shows a correct controller frame while the
+robot rotates the wrong way. `kinematics/ik_node.py` had exactly this bug — it kept a
+Unity->ROS correction from when the old `vr_pose_relay` republished `/quest/*` raw.
+
+If a consumer needs to adjust how the gripper sits in the hand, apply a **rigid**
+rotation offset. Do not decompose to Euler angles and negate or swap them: that is a
+reflection, not a rotation, and it distorts compound rotations by tens of degrees in a
+way no offset tuning can correct.
+
+---
+
+## How the arm follows your hand
+
+`kinematics/ik_node.py` maps the controller onto the gripper. Its
+`orientation_anchor` parameter chooses how:
+
+| Mode | Behaviour |
+|---|---|
+| `clutch` | **Default.** Pressing the trigger latches the current controller and gripper orientations as neutral; the gripper then follows the rotation you make *from there*. |
+| `fixed` | The controller's world orientation is the target directly. Repeatable, but the wrist can snap the instant you engage. |
+
+Clutch mode works like lifting a mouse: release the trigger, move your hand to a
+comfortable position, press again. The arm does not move while you re-grip, so you
+never run out of wrist travel. Because neutral is defined at engage, there is no
+alignment constant to get wrong — which is what makes the mapping impossible to
+invert.
+
+In `fixed` mode, the controller's pointing direction maps to the gripper's approach
+direction with no offset. Both are their frame's local X: the Quest controller's
+forward axis becomes local X under the Unity->ROS conversion above, and
+`left_tcp_joint`'s `rpy="0 1.57 0"` puts the gripper's approach on the TCP's local X.
+
+```bash
+ros2 param set /dual_arm_ik orientation_anchor fixed
+ros2 param set /dual_arm_ik orientation_weight 0.3   # tighter orientation tracking
+```
+
+Note the two `*_tcp` frames are mirror images of one another, so anything that
+hardcodes a single orientation constant for both arms will be wrong on one of them.
+
+---
+
+## Troubleshooting
+
+**No `/quest/*` topics.** The headset is not connected. Check that the IP in the Unity
+app matches `hostname -I` on this machine, that both are on the same subnet, and that
+port 10000 is open: `sudo ufw allow 10000/tcp`.
+
+**Topics publish but no TF appears.** The TF node is not running — `endpoint.launch.py` alone
+does not start one. Use `vr_control_switch.launch.py`, or run `ros2 run vr_teleop
+quest_tf_switch` alongside it.
+
+**`TF_REPEATED_DATA` warnings, or frames flickering in RViz.** The TF nodes pass the
+incoming `header.stamp` through unchanged. If the Unity side sends zero or
+non-monotonic timestamps, TF will reject them. Verify with
+`ros2 topic echo /quest/head --field header.stamp`.
+
+**Left and right controllers feel swapped.** That is the difference between the two
+modes — flip it with the `set_mirror` service.
+
+**`colcon build` fails on a missing `resource/vr_teleop`.** That zero-byte file is the
+ament package marker and must exist: `touch resource/vr_teleop`.

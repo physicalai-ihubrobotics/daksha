@@ -1,0 +1,29 @@
+# limiter_tuner: drives joint_command_limiter's speed parameters from
+# /speed_governor/scale (value = base * scale).
+
+/**:
+  ros__parameters:
+    target_node: "/joint_command_limiter"
+    scale_topic: "/speed_governor/scale"
+
+    # Full-speed values. -1 = read the limiter's current values at startup.
+    base_max_velocity: -1.0          # rad/s
+    base_max_acceleration: -1.0      # rad/s^2
+    base_gripper_max_velocity: -1.0  # m/s
+    scale_gripper: true
+
+    # The limiter uses max_acceleration for braking too. While the scale is
+    # falling, acceleration stays at the base value for brake_hold seconds,
+    # and it is never scaled below min_acceleration.
+    min_acceleration: 2.0            # rad/s^2
+    brake_hold: 0.5                  # s
+
+    # Parameter updates per second, and the minimum relative change (vs base)
+    # worth sending — each update is logged by the limiter.
+    update_rate: 10.0
+    change_threshold: 0.05
+
+    # If the governor goes silent this long, use stale_scale
+    # (1.0 = restore full speed, 0.0 = stop).
+    stale_timeout: 0.5
+    stale_scale: 1.0

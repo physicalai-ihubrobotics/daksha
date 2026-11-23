@@ -1,0 +1,36 @@
+# Robot registry. Paths may be absolute or "package://<pkg>/<relative path>".
+# Groups are kinematic chains (base link -> tip link); their joints are derived
+# from the URDF, so nothing here duplicates joint names.
+#
+# Add Piper / KARNA here once their URDF/SRDF are available — do not guess
+# frame or joint names.
+
+robots:
+  gen2:
+    type: arm                       # arm | humanoid
+    urdf: package://daksha_description_full_body/urdf/robot.urdf
+    collision_urdf: package://daksha_description_full_body/urdf/robot_collision.urdf
+    srdf: package://daksha_description_full_body/srdf/daksha.srdf
+    base_frame: base_link
+    joint_state_topic: /joint_states
+    # Hardware -> URDF sign per joint (same file collision_scene uses).
+    joint_direction_file: package://kinematics/config/joint_direction.yaml
+
+    groups:
+      left_arm:      {base: base_link, tip: left_link_8}
+      right_arm:     {base: base_link, tip: right_link_8}
+      left_gripper:  {base: left_gripper_mount, tip: left_left_finger}
+      right_gripper: {base: right_gripper_mount, tip: right_right_finger}
+
+    end_effectors:
+      left:  left_tcp
+      right: right_tcp
+
+    # Live topics from collision_scene / speed_governor (optional).
+    collision:
+      self_collision: /collision_scene/self_collision
+      world_collision: /collision_scene/world_collision
+      min_distance: /collision_scene/min_distance
+      joint_distance: /collision_scene/joint_distance
+      speed_scale: /speed_governor/scale
+      speed_limits: /speed_governor/limits

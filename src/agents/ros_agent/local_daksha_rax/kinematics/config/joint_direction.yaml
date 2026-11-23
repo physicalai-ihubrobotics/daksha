@@ -1,0 +1,31 @@
+# Per-joint output direction overrides for kinematics/ik_node.
+#
+# Multiplies the IK-solved joint angle by the value BEFORE it is published
+# on /joint_cmd and /joint_states.  1.0 = as solved, -1.0 = inverted.
+#
+# Unlisted joints default to 1.0 (no change).
+#
+# Live-tunable:
+#   ros2 param set /dual_arm_ik joint_direction.right_joint_6 -1.0
+
+/**:
+  ros__parameters:
+
+    joint_direction:
+      # ---- left arm ----
+      left_joint_1: 1.0
+      left_joint_2: 1.0
+      left_joint_3: 1.0
+      left_joint_4: 1.0
+      left_joint_5: 1.0
+      left_joint_6: 1.0
+      left_joint_7: 1.0
+
+      # ---- right arm ----
+      right_joint_1: 1.0
+      right_joint_2: 1.0
+      right_joint_3: 1.0
+      right_joint_4: 1.0
+      right_joint_5: 1.0
+      right_joint_6: 1.0
+      right_joint_7: 1.0

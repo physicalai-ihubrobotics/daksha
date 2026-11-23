@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robot_setup</name>
+  <version>0.1.0</version>
+  <description>Python environment for the Daksha workspace: install.sh / uninstall.sh for the uv-managed ~/daksha_venv (placo, damiao-motor, workspace requirements) and the activate_daksha.sh helper</description>
+  <maintainer email="selvambharani100@gmail.com">baranidharan</maintainer>
+  <license>Apache License 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- install.sh fetches uv with curl -->
+  <exec_depend>curl</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

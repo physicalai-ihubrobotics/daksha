@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "robot": {
+      "type": "stdio",
+      "command": "/home/ihub/Desktop/rax/local_daksha_rax/.venv/bin/python",
+      "args": [
+        "/home/ihub/Desktop/rax/local_daksha_rax/harness/mcp_bridge.py",
+        "/home/ihub/Desktop/rax/local_daksha_rax/runtime/sessions/q1/robot.sock"
+      ]
+    }
+  }
+}

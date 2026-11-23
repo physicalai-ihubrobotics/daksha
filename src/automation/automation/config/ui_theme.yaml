@@ -1,0 +1,115 @@
+# ─────────────────────────────────────────────────────────
+#  Daksha Automation UI — Theme & Color Reference
+# ─────────────────────────────────────────────────────────
+
+fonts:
+  primary: "Space Grotesk"
+  monospace: "IBM Plex Mono"
+  fallback: "system-ui, -apple-system, sans-serif"
+  source: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+
+colors:
+  # ── Backgrounds ──
+  bg: "#eaf1fb"
+  panel: "#ffffff"
+  panel_secondary: "#f7faff"
+
+  # ── Borders & Lines ──
+  line: "#e2eaf6"
+  line_soft: "#eef3fa"
+
+  # ── Text ──
+  text: "#16263b"
+  muted: "#5b6b80"
+  dim: "#93a3b8"
+
+  # ── Brand / Primary ──
+  blue: "#1d6ff2"
+  blue_deep: "#0f4fc4"
+  blue_soft: "#e8f0fe"
+
+  # ── Status ──
+  green: "#16a34a"
+  green_soft: "#e7f7ee"
+  red: "#ef4444"
+  red_soft: "#fdeaea"
+  amber: "#f59e0b"
+  amber_soft: "#fef3e2"
+
+  # ── Accent ──
+  cyan: "#0ea5e9"
+  cyan_soft: "#e3f4fd"
+  indigo: "#6366f1"
+  indigo_soft: "#eceefe"
+  slate_soft: "#eef2f7"
+
+gradients:
+  nav_active: "linear-gradient(135deg, #1f6ef2, #3b86f8)"
+  launch_button: "linear-gradient(135deg, #1f6ef2, #3b86f8)"
+
+shadows:
+  card: "0 1px 2px rgba(15,50,110,.05), 0 8px 24px rgba(15,50,110,.06)"
+  nav_active: "0 6px 16px rgba(29,111,242,.28)"
+  launch_button: "0 8px 20px rgba(29,111,242,.3)"
+
+borders:
+  radius: "14px"
+  radius_nav: "11px"
+  radius_button: "11px"
+  radius_pill: "999px"
+  radius_stat_icon: "10px"
+  radius_info_card: "12px"
+
+typography:
+  page_title:
+    size: "31px"
+    weight: 700
+    letter_spacing: "-0.01em"
+  nav_item:
+    size: "14px"
+    weight: 500
+  button:
+    size: "14.5px"
+    weight: 600
+  stat_value:
+    size: "19px"
+    weight: 600
+    font: monospace
+  stat_label:
+    size: "12px"
+    weight: 500
+  stat_sub:
+    size: "10.5px"
+    font: monospace
+  clock:
+    size: "13px"
+    font: monospace
+  state_pill:
+    size: "12px"
+    weight: 600
+    letter_spacing: "0.06em"
+  brand_title:
+    size: "19px"
+    letter_spacing: "0.02em"
+  brand_subtitle:
+    size: "9.5px"
+    letter_spacing: "0.16em"
+    text_transform: "uppercase"
+
+e_stop:
+  background: "#d81f2f"
+  text: "#ffffff"
+  border: "2px solid rgba(255,255,255,.5)"
+  border_radius: "8px"
+  shadow: "0 2px 10px rgba(216,31,47,.45)"
+
+toast:
+  success:
+    background: "#1e293b"
+    text: "#ffffff"
+  error:
+    background: "#d81f2f"
+    text: "#ffffff"
+  border_radius: "10px"
+  shadow: "0 4px 20px rgba(0,0,0,.35)"
+  duration_ms: 3500

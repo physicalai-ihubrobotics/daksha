@@ -1,0 +1,271 @@
+DAKSHA: QWEN VLM + NVIDIA COSMOS PHYSICAL REASONING ON THE CURRENT ARCHITECTURE
+==============================================================================
+Design document, 2026-11-16. Nothing here is implemented yet.
+Motion stays on aruco_reach (IK + self-collision + table floor). NO MoveIt.
+Current architecture reference: src/pipeline_agent.txt.
+Paths are relative to src/agents/ros_agent/ unless they say otherwise.
+
+
+0. WHAT IS ON THE ROBOT TODAY (checked with `ollama list` / `ollama show`)
+-------------------------------------------------------------------------
+  qwen3.5:35b        (+ rax-qwen3.5-35b:64k twin)   vision, tools, thinking   ~22 GB
+  qwen3-vl:8b                                       vision, tools, thinking   ~6 GB
+  cosmos-reason2:8b  (+ rax-cosmos-reason2-8b:64k)  vision, tools             ~10 GB
+  Thor, 122 GB unified memory: Qwen 35b + Cosmos 8b fit loaded together.
+
+  Today ONE model does everything (agent_node.set_model forces Ask, RAX, VLM and the trackers onto
+  the same model). The new design uses TWO models with fixed jobs.
+
+
+1. WHO DOES WHAT
+----------------
+  Qwen VLM (qwen3.5:35b)       SEES. Object detection and identification, bounding boxes,
+                                scene descriptions, tracker re-detections, yes/no checks on the
+                                gripper camera image.
+                                Also the RAX agent's brain (tool calling, planning).
+  Cosmos (cosmos-reason2:8b)   REASONS PHYSICALLY. How the objects relate to each other (on top
+                                of, under, inside, leaning, tangled, partly hidden), how an object
+                                will behave (rigid / deformable / rolls / fragile / heavy), what
+                                will happen if the robot does X, why an action failed, and whether
+                                the result is physically right.
+  Geometry (existing code)     WHERE. Metric 3-D from calibrated cameras: world camera = table
+                                plane, wrist cameras = aligned depth (Skills._localize,
+                                real_backend._footprint / _pixel_to_position, wrist_servo).
+  RAX agent (existing)         DECIDES. Reads Qwen's observations and Cosmos's reasoning, picks
+                                the skill and its parameters, replans.
+  aruco_reach (existing)       MOVES SAFELY. IK, straight-line or joint path, self-collision,
+                                min TCP z = table, execute switch, lag / stall stops. It is the
+                                only node that publishes /joint_cmd.
+
+  Source of truth (Cosmos never overrides these):
+    object identity / appearance ........ Qwen
+    physical relations / predictions .... Cosmos
+    metric 3-D position ................. calibrated camera geometry (+ wrist depth)
+    joint state ......................... /joint_states
+    reachability ........................ IK (aruco_reach, daksha_check)
+    collision / table floor ............. aruco_reach + SafetyMonitor
+    gripper result ...................... /aruco_reach/gripper (width, stalled_before_target)
+    task decision ....................... RAX agent
+    experience .......................... verified task-log records
+
+  HARD RULE: Cosmos outputs are ADVICE from a fixed menu (grasp style, arm, approach side, "look
+  again", "move X first", risk flags). Cosmos NEVER gives coordinates, joint values or motor
+  commands. The code throws away any coordinates in its reply.
+
+
+2. PIPELINE DIAGRAM (new parts marked [NEW])
+--------------------------------------------
+
+  operator text (web page 8150 / /pipeline/command)
+        |
+        v
+  LocalAgent.submit -> worker -> RaxAgent.run  (Claude Code on rax-qwen3.5-35b:64k, MCP tools only)
+        |
+        |  1. daksha_status        (+ [NEW] physical_reasoning on/off, cosmos model, memory hits)
+        |  2. daksha_find X        Qwen: box + label   -> geometry: 3-D position, size
+        |  3. [NEW] daksha_reason  Cosmos: relations, object type, risks, suggested strategy
+        |  4. daksha_plan          plan built from 2 + 3 (+ [NEW] experience memory)
+        |  5. daksha_pick_up X {style, arm, ...}       Skills.pick (existing sub-tasks)
+        |        [NEW] pre-grasp check: Cosmos on the wrist image
+        |        [NEW] on failure: Cosmos explains why -> "What could work instead" in the error
+        |  6. daksha_put_down ...                      Skills.place_at / put_in
+        |        [NEW] after placing: Cosmos "is it stable / inside / upright?" next to
+        |              verify_placed
+        |  7. daksha_report        complete + evidence
+        |
+        v
+  [NEW] ExperienceMemory: one record per pick / place attempt, written automatically
+        |
+  RosRobotBackend -> MotionClient -> aruco_reach -> /joint_cmd     (UNCHANGED)
+
+  Ollama :11434 serves both models
+     Qwen  : RAX agent, Ask agent, detect(), trackers, gripper-camera yes/no
+     Cosmos: [NEW] CosmosReasoner only
+
+
+3. THE COSMOS REASONER (new module)
+-----------------------------------
+  File:   local_daksha_rax/local_pipeline/cosmos.py   (next to ollama_vlm.py, so sim and real
+          robot both get it)
+  Client: reuse OllamaVLM (ask_json, parse_json, retries) with model=cosmos-reason2:8b.
+          It is a separate instance, so changing Qwen in the UI does not change Cosmos.
+
+  INPUT to every call (Qwen and geometry results go in as FACTS, so Cosmos does not re-detect):
+    - image(s): world frame, and the wrist frame when the hand is close; boxes drawn on, the same
+      vlm.jpg style as today
+    - objects: [{name, bbox_px, top_position_m, size_m, source: vlm|tracker|wrist-depth}]
+    - robot: which hand holds what, gripper widths, the arm in use
+    - the question type and the task text
+    - similar past experience (section 6), short
+
+  CALL TYPES, each with a fixed JSON reply schema (constrained decoding, as in detect()):
+
+  a) assess_scene(task, objects)                        before the plan / before a pick
+     {"objects": [{"name", "kind": rigid|deformable|granular|liquid_container|fragile,
+                   "shape": box|cylinder|sphere|flat|thin_long|irregular,
+                   "graspable": true|false, "why"}],
+      "relations": [{"a", "rel": on_top_of|under|inside|leaning_on|touching|tangled_with|
+                     occluded_by, "b"}],
+      "blockers": [{"target", "blocked_by", "action": move_first|pick_other_side}],
+      "risks": [{"what": tip_over|roll_away|drag_other|crush|slip|spill, "object", "level": low|med|high}],
+      "need_another_look": true|false, "look_with": world|right_wrist|left_wrist|none,
+      "confidence": 0..1}
+
+  b) choose_grasp(object, scene, allowed_styles, arms)   before daksha_pick_up
+     {"style": side|top|tilted|flat, "arm": left|right|either,
+      "approach_from": front|left|right|above, "grip": pinch|wrap,
+      "expected_width_m_range": [min, max],    (used to judge the grasp, NOT to move)
+      "why", "confidence"}
+     The code keeps only values from allowed_styles. `flat` is only offered once that skill exists
+     (section 7).
+
+  c) predict(action_text, scene)                         optional, before a risky action
+     {"likely_outcome", "failure_modes": [...], "proceed": true|false, "safer_alternative"}
+
+  d) diagnose_failure(subtask, error, gripper, images)   inside the failure path
+     {"cause": missed_left|missed_right|too_high|too_low|slipped|object_moved|blocked|too_thin|
+               too_wide|soft_object|not_visible|unknown,
+      "fix": other_style|other_arm|lower_grasp|reobserve|move_blocker|give_up,
+      "fix_detail", "confidence"}
+
+  e) verify_outcome(goal_text, before_img, after_img, objects)   after a pick / place
+     {"success": true|false, "observations": [...], "physically_stable": true|false, "why"}
+
+  Validation (cosmos.py): JSON schema check -> enum check -> drop numbers that look like
+  coordinates -> confidence below `min_confidence` = treat as "no advice". Cosmos being down,
+  slow or invalid NEVER blocks a task: the pipeline continues exactly as today, and the log
+  says "physical reasoning skipped".
+
+
+4. WHERE IT PLUGS INTO THE EXISTING CODE (no MoveIt; aruco_reach unchanged)
+-------------------------------------------------------------------------
+  ros_agent/pipeline_node.py
+    _start_agent(): after the Qwen OllamaVLM, also build
+        self.cosmos = CosmosReasoner(OllamaVLM(host=ollama, model=cfg physical_reasoning.model))
+      Warm it up in the background, and give it to the agent: agent.cosmos = self.cosmos.
+    state(): add {"physical_reasoning": {"enabled", "model", "ready", "last": <last reply>}}
+      for the page.
+
+  ros_agent/agent_node.py
+    set_model(): the "one model everywhere" switch must NOT touch Cosmos (it changes only the
+      Qwen side).
+
+  ros_agent/rax_agent.py
+    _extra_tools(): add
+      daksha_reason {question_type: scene|grasp|predict|verify, object?, action?, cameras?}
+        -> CosmosReasoner, using the latest Qwen detections (pipeline.objects_3d()) as facts.
+        Returns the JSON and the annotated image.
+    _pick(): if the model or UI gave no style, call choose_grasp and use its style / arm
+      (operator-named arm and UI grasp_choice still win). Log "style side (Cosmos: <why>)".
+    SYSTEM prompt: add rules
+      - "Before a pick of an object you have not handled before, or when the scene is cluttered,
+        call daksha_reason(scene)."
+      - "Cosmos gives physical advice, never positions; positions come from daksha_find."
+      - "After a failure, read the Cosmos diagnosis in the error before replanning."
+    daksha_status: add the Cosmos state + experience hits for the named object.
+
+  local_daksha_rax/local_pipeline/robot.py  (Skills)
+    subtask(): when it finally fails and self.cosmos is set, call diagnose_failure with the
+      gripper result and the wrist image. Put the cause and fix into the StepFailed text instead
+      of only the fixed SUBTASK_HINTS (the hints stay as the fallback).
+    pick(): optional pre-close check on the wrist image ("is the object between the fingers and
+      low enough?") with Cosmos instead of the Qwen yes/no. Use expected_width_m_range from
+      choose_grasp to judge the close (e.g. a cable at 5 mm becomes valid).
+    place_at() / put_in(): after verify_placed, call verify_outcome (before/after world images).
+      physically_stable=false -> StepFailed "placed but <why>".
+
+  local_daksha_rax/local_pipeline/agent.py
+    _finish_task(): write the experience records (section 6).
+    snapshot(): include the Cosmos reasoning for the plan card ("why this grasp").
+
+  config/pipeline.yaml (new block)
+    physical_reasoning:
+      enabled: true
+      model: cosmos-reason2:8b
+      num_ctx: 8192
+      min_confidence: 0.5
+      on: [scene, grasp, failure, verify]   # which hooks run automatically
+      timeout_s: 30                          # slower = skipped, task continues
+    experience:
+      enabled: true
+      file: runtime/ros_pipeline/experience.jsonl
+      max_hits: 5
+
+  Ollama
+    - Both models stay loaded: OLLAMA_MAX_LOADED_MODELS=2 (or more) in the ollama systemd unit,
+      plus keep_alive on each request. 22 GB + 10 GB fits in 122 GB.
+    - Qwen and Cosmos calls can then run at the same time (today every call waits in one queue).
+
+
+5. EXAMPLE: "pick up the cable and put it in the box"
+-----------------------------------------------------
+  1  Qwen         daksha_find cable, box -> boxes. Geometry: cable top 0.893 m (5 mm above the
+                  table), box 0.42, -0.10.
+  2  Cosmos       assess_scene -> cable: deformable, thin_long; relation cable "under" box (one
+                  end); blocker: move the box first OR grasp the free end; risk drag_other med.
+  3  RAX          daksha_plan ["find the free end of the cable", "pick up the cable (flat grasp,
+                  right hand)", "put it into the box"]
+  4  Cosmos       choose_grasp -> style flat, arm right, pinch, width 3-10 mm, from above.
+  5  Skills       pick (flat): pre-grasp above the free end -> wrist depth servo -> TCP to
+                  table + ~4 mm -> close
+  6  aruco_reach  IK + self-collision + table floor (min_tcp_z) on every move; execute switch.
+  7  Gripper      stalled at 6 mm -> inside Cosmos's 3-10 mm -> grasp OK (today it would be
+                  rejected as < 1.5 cm).
+  8  Cosmos       verify_outcome after the lift: "cable lifted, still under the box at the far
+                  end" -> RAX: lift higher / move back first.
+  9  Skills       put_in box -> verify_placed (Qwen + geometry) + verify_outcome (Cosmos).
+ 10  Memory       record {object: cable, kind: deformable, style: flat, width 6 mm, success}.
+                  Next time "cable" retrieves it -> choose_grasp starts with flat.
+
+
+6. AUTOMATIC EXPERIENCE MEMORY (no manual records)
+-------------------------------------------------
+  Written by the code, never typed by hand, and only from VERIFIED results:
+    one JSON line per pick / place attempt:
+    {time, task, object, qwen_label, cosmos_kind, cosmos_shape, size_m, arm, style, approach,
+     table_z, gripper_width_m, stalled, subtask_failed?, cause (Cosmos diagnose), success,
+     verified_by: [gripper, wrist_qwen, verify_placed, cosmos_verify], images: frame ids}
+  Sources already in the code: Skills.last_grasp, grasp_pose, the plan card sub-task results,
+  LocalAgent.results (task log), and the rax_agent report.
+  Retrieval: by label (exact or fuzzy) and by cosmos_kind/shape -> the top max_hits records go to
+    choose_grasp as context and appear in daksha_status ("cable: flat 3/3 ok, side 0/2").
+  Only records whose success is backed by the gripper / camera checks count as success, so a
+  wrong Cosmos guess can't turn itself into "experience".
+
+
+7. ONE NEW SKILL THIS NEEDS: THE FLAT / THIN GRASP
+-------------------------------------------------
+  Cosmos can recommend `flat`, but the skills can't execute it yet. Today the side grasp keeps the
+  fingertips >= 4 cm above the table (robot.py wrist_approach z_hold clamp), and close() rejects
+  widths < 1.5 cm. So cables and cloth always fail.
+  Add style `flat` to Skills.pick:
+    - approach from above (as top/tilted), descend to table + flat_grasp_dz (about 3-5 mm; the
+      aruco_reach min_tcp_z = table + 5 mm floor still applies, so set the floor to match the
+      finger geometry)
+    - close with width accepted from expected_width_m_range (default 2 mm .. 2 cm)
+    - success = stalled OR (width in range AND the wrist camera sees it held after the lift)
+    - cloth: pinch at a fold or edge (Cosmos picks which part from the image; the position still
+      comes from Qwen box + wrist depth)
+  Settings in pipeline.yaml: flat_grasp_dz, flat_min_width_m, flat_max_width_m.
+
+
+8. SPEED AND FALLBACKS
+----------------------
+  - The Cosmos hooks add 1-4 extra model calls per task. Measure the latency on Thor before you
+    turn all hooks on (`physical_reasoning.on` lets you enable them one by one).
+  - If Cosmos is disabled, down or times out: exactly today's behaviour.
+  - If Qwen is down: nothing works (perception + agent); same as today.
+  - If Cosmos and the geometry disagree (e.g. Cosmos says "under", the depth says it is on top):
+    geometry wins for WHERE; Cosmos's flag only triggers "need_another_look" with a wrist camera.
+
+
+9. BUILD ORDER (each step is usable by itself)
+---------------------------------------------
+  1. cosmos.py + the pipeline.yaml block + PipelineNode wiring + the daksha_reason tool (manual
+     use by RAX only). Check the replies on real scenes in the UI.
+  2. Grasp choice: choose_grasp in _pick when no style is given.
+  3. Failure diagnosis inside Skills.subtask -> better replans.
+  4. verify_outcome after place / put_in.
+  5. The flat grasp skill (section 7) -> cables, cloth, thin items.
+  6. Experience memory: write first, then retrieve into choose_grasp / status.
+  7. Page: show "Cosmos: <why>" on the plan card and the grasp card.

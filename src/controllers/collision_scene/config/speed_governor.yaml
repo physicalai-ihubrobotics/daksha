@@ -1,0 +1,47 @@
+# speed_governor node parameters.
+# Output only: publishes ~/state, ~/predicted, ~/limits, ~/scale.
+# Nothing here is wired into /joint_cmd.
+
+/**:
+  ros__parameters:
+    rate_hz: 50.0
+
+    joint_states_topic: "/joint_states"
+    joint_distance_topic: "/collision_scene/joint_distance"
+
+    # Prediction: state extrapolated this far ahead (s).
+    prediction_horizon: 0.3
+
+    # Low-pass alphas (1.0 = raw, smaller = smoother).
+    velocity_filter: 0.5
+    acceleration_filter: 0.3
+    distance_rate_filter: 0.4
+
+    # Full-speed limits (match joint_command_limiter defaults).
+    max_velocity: 3.0              # rad/s
+    max_acceleration: 6.0          # rad/s^2
+    gripper_max_velocity: 0.25     # m/s
+    gripper_max_acceleration: 2.5  # m/s^2
+
+    # Distance ramp: full speed above slow_distance, scale 0 at stop_distance.
+    slow_distance: 0.10            # m
+    stop_distance: 0.01            # m
+
+    # Time-to-contact ramp (only while the joint is approaching a collision).
+    ttc_slow: 1.0                  # s
+    ttc_stop: 0.2                  # s
+
+    # Closing speed below this (m/s) counts as "not approaching" — filters the
+    # mm-level distance jitter of a stationary arm.
+    closing_deadband: 0.01
+
+    # Floor while moving AWAY from a collision, so the arm can back off.
+    release_scale: 0.3
+    # Absolute floor for the scale.
+    min_scale: 0.0
+    # Scale drops instantly; it recovers at most this much per second.
+    scale_rise_rate: 1.0
+
+    # If collision_scene stops publishing for this long, use stale_scale.
+    distance_timeout: 0.5          # s
+    stale_scale: 0.0

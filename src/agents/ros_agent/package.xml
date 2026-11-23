@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>ros_agent</name>
+  <version>0.1.0</version>
+  <description>
+    Robot intelligence agent: understands the robot from its URDF/SRDF, reads
+    live state, collision and speed-governor data, and answers natural-language
+    questions through an optional OpenAI-compatible LLM. Read-only: it never
+    commands motion.
+  </description>
+  <maintainer email="ihrphysicalai@gmail.com">ihub</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>aruco_hand_eye</exec_depend>   <!-- IK, trajectories, collision check, calibration -->
+  <exec_depend>gen2</exec_depend>             <!-- HomeMoveService home pose -->
+  <exec_depend>hw_interface</exec_depend>     <!-- MotorStatusArray: motor temperatures -->
+  <exec_depend>diagnostic_msgs</exec_depend>  <!-- safety monitor: /diagnostics -->
+  <exec_depend>kinematics</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

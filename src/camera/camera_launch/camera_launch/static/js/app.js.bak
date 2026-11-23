@@ -1,0 +1,204 @@
+// Camera Setup UI — scan RealSense hardware, preview feeds live, drag each
+// feed into a role slot, save the serial->role map to cameras.yaml.
+
+let DEVICES = [];                 // [{serial,name,usb,status,detail}]
+let ASSIGN = {};                  // role_key -> serial|null
+
+const el = (id) => document.getElementById(id);
+const streamURL = (serial) => `/stream/${serial}?t=${Date.now()}`;
+
+function toast(msg, kind) {
+  const t = el('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (kind ? ' ' + kind : '');
+  t.hidden = false;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.hidden = true; }, 3200);
+}
+
+// --- render detected cameras ------------------------------------------- //
+function roleOfSerial(serial) {
+  for (const k in ASSIGN) if (ASSIGN[k] === serial) return k;
+  return null;
+}
+function roleLabel(key) {
+  const r = ROLES.find((x) => x.key === key);
+  return r ? r.label : key;
+}
+
+function buildDeviceCard(d) {
+  const card = document.createElement('div');
+  card.className = 'dev';
+  card.draggable = true;
+  card.dataset.serial = d.serial;
+  card.innerHTML = `
+    <div class="feed">
+      <span class="pill"></span>
+      <span class="usb"></span>
+      <img src="${streamURL(d.serial)}" alt="feed">
+    </div>
+    <div class="meta">
+      <div class="name"></div>
+      <div class="serial"></div>
+      <div class="assignedtag" hidden></div>
+    </div>`;
+  card.addEventListener('dragstart', (e) => {
+    card.classList.add('dragging');
+    e.dataTransfer.setData('text/plain', d.serial);
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  card.addEventListener('dragend', () => card.classList.remove('dragging'));
+  return card;
+}
+
+// Incremental update: reuse existing tiles (so their MJPEG <img> keeps
+// streaming) and only add/remove/restyle as the device set changes.
+function renderDevices() {
+  const grid = el('devices');
+  el('devCount').textContent = DEVICES.length;
+  el('devEmpty').hidden = DEVICES.length > 0;
+
+  const seen = new Set();
+  for (const d of DEVICES) {
+    seen.add(d.serial);
+    let card = grid.querySelector(`.dev[data-serial="${d.serial}"]`);
+    if (!card) { card = buildDeviceCard(d); grid.appendChild(card); }
+
+    const assignedRole = roleOfSerial(d.serial);
+    card.classList.toggle('assigned', !!assignedRole);
+    const st = d.status || 'connecting';
+    const pill = card.querySelector('.pill');
+    pill.className = 'pill ' + st;
+    pill.textContent = st === 'live' ? 'live' : st;
+    card.querySelector('.usb').textContent = 'USB ' + (d.usb || '?');
+    card.querySelector('.name').textContent = d.name || 'RealSense';
+    card.querySelector('.serial').textContent = d.serial;
+    const tag = card.querySelector('.assignedtag');
+    tag.hidden = !assignedRole;
+    if (assignedRole) tag.innerHTML = '&#10003; ' + roleLabel(assignedRole);
+  }
+  grid.querySelectorAll('.dev').forEach((c) => {
+    if (!seen.has(c.dataset.serial)) c.remove();
+  });
+}
+
+// --- render role slots ------------------------------------------------- //
+function renderSlots() {
+  for (const r of ROLES) {
+    const slot = document.getElementById('slot-' + r.key);
+    const drop = slot.querySelector('.slot-drop');
+    const empty = slot.querySelector('.slot-empty');
+    const img = slot.querySelector('.slot-feed');
+    const serialEl = slot.querySelector('.slot-serial');
+    const serial = ASSIGN[r.key];
+
+    if (serial) {
+      drop.classList.add('filled');
+      empty.hidden = true;
+      img.hidden = false;
+      if (img.dataset.serial !== serial) {   // only (re)load when it changes
+        img.src = streamURL(serial);
+        img.dataset.serial = serial;
+      }
+      const dev = DEVICES.find((d) => d.serial === serial);
+      serialEl.textContent = serial + (dev ? '' : ' (offline)');
+    } else {
+      drop.classList.remove('filled');
+      empty.hidden = false;
+      img.hidden = true;
+      img.removeAttribute('src');
+      img.dataset.serial = '';
+      serialEl.textContent = '';
+    }
+  }
+}
+
+// --- drag & drop on slots ---------------------------------------------- //
+function wireSlots() {
+  document.querySelectorAll('.slot-drop').forEach((drop) => {
+    drop.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      drop.classList.add('over');
+    });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      drop.classList.remove('over');
+      const serial = e.dataTransfer.getData('text/plain');
+      if (serial) assign(drop.dataset.role, serial);
+    });
+  });
+}
+
+// --- server calls ------------------------------------------------------ //
+async function assign(role, serial) {
+  try {
+    const res = await fetch('/api/assign', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, serial }),
+    });
+    const data = await res.json();
+    if (!data.ok) return toast(data.error || 'assign failed', 'err');
+    ASSIGN = data.assignments;
+    renderSlots();
+    renderDevices();
+  } catch (e) { toast('assign failed: ' + e, 'err'); }
+}
+
+function clearSlot(role) { assign(role, ''); }
+
+async function scan() {
+  try {
+    const res = await fetch('/api/scan');
+    const data = await res.json();
+    DEVICES = data.devices || [];
+    ASSIGN = data.assignments || {};
+    const note = el('note');
+    if (data.note) { note.textContent = data.note; note.hidden = false; }
+    else note.hidden = true;
+    const anyLive = DEVICES.some((d) => d.status === 'live');
+    el('lamp').className = 'lamp' + (anyLive ? ' ready' : (DEVICES.length ? ' busy' : ''));
+    renderDevices();
+    renderSlots();
+  } catch (e) { toast('scan failed: ' + e, 'err'); }
+}
+
+async function rescan() {
+  const b = el('btnRescan');
+  b.disabled = true; const t = b.textContent; b.textContent = 'Scanning…';
+  await scan();
+  b.disabled = false; b.textContent = t;
+  toast('Hardware rescanned', 'ok');
+}
+
+async function save() {
+  const b = el('btnSave');
+  b.disabled = true; const t = b.textContent; b.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/save', { method: 'POST' });
+    const data = await res.json();
+    if (!data.ok) toast(data.error || 'save failed', 'err');
+    else {
+      const n = (data.written || []).length;
+      toast(`Saved ${(data.changed || []).join(', ')} to ${n} file${n === 1 ? '' : 's'} (src + install)`, 'ok');
+    }
+  } catch (e) { toast('save failed: ' + e, 'err'); }
+  finally { b.disabled = false; b.textContent = t; }
+}
+
+// --- boot -------------------------------------------------------------- //
+wireSlots();
+scan();
+// Light background refresh so live/busy status pills stay current without
+// reloading the already-running MJPEG <img> streams.
+setInterval(async () => {
+  try {
+    const res = await fetch('/api/scan');
+    const data = await res.json();
+    DEVICES = data.devices || [];
+    ASSIGN = data.assignments || ASSIGN;
+    renderDevices();
+    renderSlots();
+  } catch (e) { /* keep last good render */ }
+}, 5000);

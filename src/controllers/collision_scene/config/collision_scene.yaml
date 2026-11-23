@@ -1,0 +1,51 @@
+# collision_scene node parameters
+#
+# geometry:
+#   primitive  robot_collision.urdf  fast (~1 ms/check), 10–50 Hz
+#   mesh       robot.urdf            accurate, ~190 ms/check, run at 2 Hz
+#
+# Empty strings fall back to package defaults.
+
+/**:
+  ros__parameters:
+
+    urdf_file: ""
+    collision_pairs_file: ""
+    obstacles_file: ""
+
+    joint_states_topic: "/joint_states"
+
+    # Check rate. For mesh geometry use 2.0; for primitive use 10.0–50.0.
+    rate_hz: 10.0
+
+    check_self: true
+    check_world: true
+
+    # Joint states older than this (s) → stale, every joint flagged predictively.
+    joint_state_timeout: 1.0
+
+    # RViz marker frame (placo world = URDF root link).
+    marker_frame: "world"
+
+    # contact_distance (m): a pair within this is "has collided" (reactive).
+    contact_distance: 0.0
+
+    # predictive_distance (m): a pair projected prediction_horizon s ahead
+    # within this distance is "going to collide" (predictive).
+    predictive_distance: 0.03
+
+    # prediction_horizon (s): how far ahead to extrapolate joint velocities.
+    prediction_horizon: 0.3
+
+    # velocity_filter: low-pass alpha on finite-difference joint velocities.
+    # 1.0 = unfiltered, 0.1 = heavy smoothing.
+    velocity_filter: 0.5
+
+    # How many of the closest pairs to always show in RViz (green → yellow → red).
+    # Set to 0 to only show pairs in collision/warning zone.
+    marker_closest_n: 10
+
+    # Links whose name contains any of these are checked against every other
+    # link (except their own parent/adjacent links and SRDF structural overlaps),
+    # even if collision_pairs.json leaves them out. Covers each finger + gripper mount.
+    always_check_links: ["gripper", "finger"]

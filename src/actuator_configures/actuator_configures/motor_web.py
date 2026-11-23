@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""
+ROS 2 node serving the DM-J4340-2EC motor scanner / CAN id (ESC_ID) and
+feedback id (MST_ID) configurator web UI.
+
+This is a LOCAL tool: it must run on the same machine that has the
+SocketCAN interface, because a browser cannot talk to CAN hardware
+directly. The node opens the bus once and serves a small page that
+operates it over HTTP. By default it listens on all interfaces (IPv4 + IPv6) so other
+devices on the LAN can reach it at http://<hostname>.local:<port> (mDNS via
+avahi). There is no authentication -- anyone on the network can reconfigure
+motors, so set `host:=127.0.0.1` on an untrusted network.
+
+Usage:
+    ros2 launch actuator_configures motor_web.launch.py
+    ros2 run actuator_configures motor_web --ros-args \
+        -p right_channel:=can0 -p left_channel:=can1 -p port:=8000
+    # then open http://<hostname>.local:8000 from any device on the LAN
+
+The buses are the two channels of the PEAK PCAN-USB Pro FD (right=can0,
+left=can1), brought up at 1 Mbit/s by robot_setup/scripts/install_pcan.sh.
+Don't run this alongside bringup: ros2_control's command frames would show
+up as fake motors in a scan.
+"""
+
+import logging
+import socket
+import threading
+
+from flask import Flask, jsonify, request
+from werkzeug.serving import make_server
+
+import can
+import rclpy
+from rclpy.executors import ExternalShutdownException
+from rclpy.node import Node
+
+from actuator_configures.motor_driver import (
+    REG_MST_ID,
+    REG_ESC_ID,
+    flush_bus,
+    probe_motor,
+    scan_for_motors,
+    write_register,
+    disable,
+    save_to_flash,
+    set_zero_position,
+)
+
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
+import os, sys
+# daksha_web_access.py is installed by the automation package into its lib dir.
+from ament_index_python.packages import get_package_prefix
+_AUTOMATION_DIR = os.path.join(get_package_prefix("automation"), "lib", "automation")
+if _AUTOMATION_DIR not in sys.path:
+    sys.path.insert(0, _AUTOMATION_DIR)
+from daksha_web_access import setup_flask_gate
+
+app = Flask(__name__, static_folder="static", static_url_path="")
+setup_flask_gate(app, "motor_configurator")
+bus_lock = threading.Lock()
+buses = {}
+state = {"bus": None, "channel": "can1", "side": "right"}
+
+
+@app.errorhandler(can.CanOperationError)
+def handle_can_error(e):
+    return jsonify({
+        "ok": False,
+        "log": [f"CAN send failed: {e}",
+                "Bus may be error-passive/bus-off -- check termination, wiring, and bitrate "
+                "(run `ip -details -statistics link show <channel>` to inspect error counters)."],
+    }), 503
+
+
+def motor_info_json(motor_id: int, info):
+    if info is None:
+        return None
+    return {
+        "state": info["state"],
+        "position": round(info["position"], 4),
+        "velocity": round(info["velocity"], 4),
+        "torque": round(info["torque"], 4),
+        "t_mos": info["t_mos"],
+        "t_rotor": info["t_rotor"],
+        "feedback_id": info["arb_id"],
+    }
+
+
+@app.route("/")
+def index():
+    return app.send_static_file("index.html")
+
+
+@app.route("/api/status")
+def api_status():
+    return jsonify({
+        "channel": state["channel"],
+        "side": state["side"],
+        "sides": {name: info["channel"] for name, info in buses.items()},
+    })
+
+
+@app.route("/api/select_side", methods=["POST"])
+def api_select_side():
+    body = request.get_json(force=True) or {}
+    side = body.get("side", "")
+    if side not in buses:
+        return jsonify({"ok": False, "error": f"Unknown side: {side}"}), 400
+    with bus_lock:
+        state["side"] = side
+        state["channel"] = buses[side]["channel"]
+        state["bus"] = buses[side]["bus"]
+    return jsonify({"ok": True, "side": side, "channel": state["channel"]})
+
+
+@app.route("/api/scan", methods=["POST"])
+def api_scan():
+    body = request.get_json(force=True) or {}
+    start = int(body.get("start", 1))
+    end = int(body.get("end", 16))
+    timeout = float(body.get("timeout", 0.5))
+    with bus_lock:
+        found = scan_for_motors(state["bus"], start, end, timeout)
+    motors = [
+        {"id": motor_id, "info": motor_info_json(motor_id, info)}
+        for motor_id, info in sorted(found.items())
+    ]
+    return jsonify({"motors": motors})
+
+
+@app.route("/api/probe", methods=["POST"])
+def api_probe():
+    body = request.get_json(force=True) or {}
+    motor_id = int(body["id"])
+    timeout = float(body.get("timeout", 0.3))
+    with bus_lock:
+        info = probe_motor(state["bus"], motor_id, timeout)
+    return jsonify({"id": motor_id, "info": motor_info_json(motor_id, info)})
+
+
+@app.route("/api/set_id", methods=["POST"])
+def api_set_id():
+    body = request.get_json(force=True) or {}
+    current_id = int(body["current_id"])
+    new_can_id = body.get("new_can_id")
+    new_feedback_id = body.get("new_feedback_id")
+    new_can_id = int(new_can_id) if new_can_id not in (None, "") else None
+    new_feedback_id = int(new_feedback_id) if new_feedback_id not in (None, "") else None
+    retries = int(body.get("retries", 10))
+    reg_timeout = float(body.get("reg_timeout", 0.1))
+
+    if new_can_id is None and new_feedback_id is None:
+        return jsonify({"ok": False, "log": ["Nothing to do -- no new ids given."]}), 400
+
+    log = []
+    with bus_lock:
+        bus = state["bus"]
+        flush_bus(bus)
+        disable(bus, current_id)
+        active_id = current_id
+        ok = True
+
+        if new_feedback_id is not None:
+            log.append(f"Writing feedback id = {new_feedback_id} ...")
+            success = write_register(bus, active_id, REG_MST_ID, new_feedback_id, retries=retries, timeout=reg_timeout)
+            log.append("  verified." if success else "  FAILED to verify -- aborting before save.")
+            ok = ok and success
+
+        if ok and new_can_id is not None:
+            log.append(f"Writing CAN id = {new_can_id} ...")
+            success = write_register(bus, active_id, REG_ESC_ID, new_can_id, retries=retries, timeout=reg_timeout)
+            log.append("  verified." if success else "  FAILED to verify -- aborting before save.")
+            ok = ok and success
+            if success:
+                active_id = new_can_id
+
+        if ok:
+            log.append(f"Saving to flash (addressing motor at CAN id {active_id}) ...")
+            save_to_flash(bus, active_id)
+            log.append("Done. Power-cycle the motor to confirm the new id(s) stick.")
+        else:
+            log.append("Nothing persisted -- power-cycle the motor if unsure of its state.")
+
+    return jsonify({"ok": ok, "active_id": active_id, "log": log})
+
+
+@app.route("/api/zero", methods=["POST"])
+def api_zero():
+    body = request.get_json(force=True) or {}
+    motor_id = int(body["id"])
+    with bus_lock:
+        set_zero_position(state["bus"], motor_id)
+    return jsonify({"ok": True, "log": [f"CAN id {motor_id}: zero position set."]})
+
+
+@app.route("/api/zero_all", methods=["POST"])
+def api_zero_all():
+    body = request.get_json(force=True) or {}
+    ids = [int(i) for i in body.get("ids", [])]
+    log = []
+    with bus_lock:
+        bus = state["bus"]
+        for motor_id in ids:
+            set_zero_position(bus, motor_id)
+            log.append(f"CAN id {motor_id}: zero position set.")
+    log.append(f"Done -- zeroed {len(ids)} motor(s).")
+    return jsonify({"ok": True, "log": log})
+
+
+class MotorWebNode(Node):
+    """Opens the CAN buses and serves the Flask app in a background thread."""
+
+    def __init__(self):
+        super().__init__("motor_web")
+        right_channel = self.declare_parameter("right_channel", "can0").value
+        left_channel = self.declare_parameter("left_channel", "can1").value
+        host = self.declare_parameter("host", "::").value
+        port = self.declare_parameter("port", 8000).value
+
+        right_bus = can.interface.Bus(channel=right_channel, interface="socketcan")
+        left_bus = can.interface.Bus(channel=left_channel, interface="socketcan")
+
+        buses["right"] = {"channel": right_channel, "bus": right_bus}
+        buses["left"] = {"channel": left_channel, "bus": left_bus}
+
+        state["side"] = "right"
+        state["channel"] = right_channel
+        state["bus"] = right_bus
+
+        self.server = make_server(host, port, app, threaded=True)
+        self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.server_thread.start()
+        url_host = f"{socket.gethostname()}.local" if host in ("::", "0.0.0.0") else host
+        self.get_logger().info(
+            f"Motor web UI: http://{url_host}:{port}  "
+            f"(right={right_channel}, left={left_channel})"
+        )
+
+    def destroy_node(self):
+        self.server.shutdown()
+        self.server_thread.join()
+        with bus_lock:
+            for info in buses.values():
+                info["bus"].shutdown()
+        super().destroy_node()
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = MotorWebNode()
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

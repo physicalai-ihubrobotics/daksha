@@ -1,0 +1,24 @@
+# Static world obstacles for collision_scene.
+#
+# Each entry is added to CollisionWorldFCL at startup.
+# You can also add obstacles dynamically at runtime:
+#
+#   ros2 topic pub /collision_scene/add_obstacle std_msgs/String \
+#     '{"name":"table","type":"box","size":[1.2,0.8,0.05],
+#       "xyz":[0.5,0.0,0.3],"rpy":[0,0,0]}'
+#
+# Poses are in the URDF root link frame ("world").
+# size units:  box → [x, y, z] full extents (m)
+#              sphere → [radius]
+#              cylinder → [radius, length]
+
+obstacles: []
+
+# Example — uncomment to add a table surface:
+# obstacles:
+#   - name: "table_top"
+#     type: "box"
+#     size: [1.2, 0.8, 0.05]
+#     xyz: [0.5, 0.0, 0.3]
+#     rpy: [0.0, 0.0, 0.0]
+#     ignore_links: []

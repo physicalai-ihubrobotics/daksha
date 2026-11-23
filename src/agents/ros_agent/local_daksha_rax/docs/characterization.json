@@ -1,0 +1,53 @@
+{
+ "measured_at": "2026-11-11",
+ "simulator": "MuJoCo 4.0.0",
+ "move_eef": {
+  "samples_free_space": 50,
+  "samples_blocked_by_contact": 6,
+  "note": "free-space moves only; when fingers press on an object the TCP stops short and the reply lists the contact",
+  "position_error_mm_median": 0.8,
+  "position_error_mm_p95": 1.8,
+  "joint_tracking_error_rad_max": 0.0008,
+  "joint_path_duration_s_median": 1.38,
+  "wall_seconds_per_call_median": 0.25
+ },
+ "pixel_to_position_surface_error_mm": {
+  "world": {
+   "median": 5.26,
+   "p95": 306.24,
+   "samples": 16
+  },
+  "left": {
+   "median": 0.1,
+   "p95": 7.31,
+   "samples": 9
+  },
+  "right": {
+   "median": 4.8,
+   "p95": 13.44,
+   "samples": 7
+  }
+ },
+ "gripper": {
+  "left": {
+   "open_width_m": 0.0913,
+   "closed_empty_width_m": 0.0033
+  },
+  "right": {
+   "open_width_m": 0.0943,
+   "closed_empty_width_m": 0.0063
+  }
+ },
+ "fruit_size_m": {
+  "orange_diameter": 0.072,
+  "apple_diameter": 0.076,
+  "apple_height": 0.068,
+  "banana_thickness": 0.036,
+  "banana_length": 0.2
+ },
+ "bowl": {
+  "inner_radius_m": 0.095,
+  "rim_height_above_table_m": 0.073
+ },
+ "table_top_z_m": 0.85
+}

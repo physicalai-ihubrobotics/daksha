@@ -1,0 +1,60 @@
+domain_id: 22
+recording:
+  domain_id: 22
+  record_hz: 30.0
+  episode_len: 500
+  max_episodes: 1
+  inter_episode_delay: 1.0
+  fps: 30
+  # Sign applied to the leader-right/leader-left gripper reading when
+  # building the action vector's gripper channel. Has been observed to flip
+  # between recording sessions (stable within a session) -- if a session's
+  # action gripper channel moves opposite to observation.state's, flip the
+  # matching value here (must be 1.0 or -1.0). See ros2_topic_recorder.py.
+  leader_right_gripper_sign: -1.0
+  leader_left_gripper_sign: -1.0
+  # When true, action[t] is replaced with observation.state[t+1] after each
+  # episode is collected. This eliminates the leader-follower tracking lag
+  # that causes action and state to diverge by several degrees on fast joints.
+  # The last step's action is kept as-is (copied from its own state).
+  # Standard practice for ACT / diffusion-policy training.
+  action_from_next_state: true
+dataset:
+  dataset_name: final_test
+  task: pick_object
+  prompt: Pick up the red block
+  root_dir: ~/daksha/vla_dataset
+topics:
+  leader_topic_left: /leader/left_joint_states
+  leader_topic_right: /leader/right_joint_states
+  follower_topic_left: /LeftArmSystem_ordered_joint_states
+  follower_topic_right: /RightArmSystem_ordered_joint_states
+  follower_cmd_topic_left: /joint_cmd
+  follower_cmd_topic_right: /joint_cmd
+  # /joint_cmd's real subscriber (joint_command_limiter) is
+  # sensor_msgs/msg/JointState -- confirmed via `ros2 topic info /joint_cmd
+  # -v`, where every other live publisher on this topic
+  # (joint_cmd_publisher_from_joint_sates_node, home_move_service,
+  # daksha_dashboard) is also JointState. Float64MultiArray here silently
+  # fails to match any subscriber (DDS won't connect endpoints with
+  # different types), so replayed commands never reach the controller.
+  follower_cmd_msg_type: joint_state
+  leader_cmd_topic_left: ''
+  leader_cmd_topic_right: ''
+  camera_topics: &id001
+    world: /camera/world/color/image_raw/compressed
+    left: /left/camera/color/image_raw/compressed
+    right: /right/camera/color/image_raw/compressed
+recording_topics:
+  leader_topic_left: /leader/left_joint_states
+  leader_topic_right: /leader/right_joint_states
+  follower_topic_left: /LeftArmSystem_ordered_joint_states
+  follower_topic_right: /RightArmSystem_ordered_joint_states
+  follower_cmd_topic_left: /joint_cmd
+  follower_cmd_topic_right: /joint_cmd
+  follower_cmd_msg_type: joint_state
+  leader_cmd_topic_left: ''
+  leader_cmd_topic_right: ''
+  camera_topics: *id001
+  
+

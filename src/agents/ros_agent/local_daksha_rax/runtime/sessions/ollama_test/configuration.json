@@ -1,0 +1,13 @@
+{
+  "root": "/home/ihub/robot/src/agents/ros_agent/local_daksha_rax/runtime/sessions/ollama_test",
+  "task": "fruit_to_bowl",
+  "robot": "daksha_sim",
+  "backend_options": {},
+  "observation_profile": "rgbd",
+  "episodes": 2,
+  "formal_episodes": 10,
+  "agent_model": null,
+  "agent_effort": "high",
+  "session_seconds": 1800,
+  "subagents": false
+}

@@ -1,0 +1,1 @@
+{"permissions": {"defaultMode": "dontAsk", "allow": ["mcp__robot"], "deny": ["Bash", "Edit", "Write", "Read", "NotebookEdit", "WebFetch", "WebSearch"]}, "includeCoAuthoredBy": false, "env": {"MCP_TOOL_TIMEOUT": "900000", "MCP_TIMEOUT": "60000", "DISABLE_AUTOUPDATER": "1", "ENABLE_TOOL_SEARCH": "false"}}

@@ -1,0 +1,21 @@
+{
+ "cameras": [
+  {
+   "name": "world",
+   "mount": "fixed",
+   "extrinsics": "/home/ihub/Desktop/rax/daksha_rax/runtime/calibration/bad/world.yaml"
+  },
+  {
+   "name": "left",
+   "mount": "tcp",
+   "arm": "left",
+   "extrinsics": "/home/ihub/Desktop/rax/daksha_rax/runtime/calibration/bad/left.yaml"
+  },
+  {
+   "name": "right",
+   "mount": "tcp",
+   "arm": "right",
+   "extrinsics": "/home/ihub/Desktop/rax/daksha_rax/runtime/calibration/bad/right.yaml"
+  }
+ ]
+}

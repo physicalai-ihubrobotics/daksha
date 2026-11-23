@@ -1,0 +1,23 @@
+# APT packages for the Daksha workspace.
+# Installed by scripts/install_apt.sh (reads this file).
+# Format: one package per line; comments and blank lines are ignored.
+#
+# Install:   ~/robot/src/robot_setup/scripts/install_apt.sh
+#            ros2 run robot_setup install_apt.sh       (after colcon build)
+
+# --- ROS 2 Control framework -------------------------------------------------
+ros-jazzy-ros2-control
+ros-jazzy-ros2-controllers
+ros-jazzy-controller-manager
+ros-jazzy-joint-state-broadcaster
+ros-jazzy-joint-trajectory-controller
+ros-jazzy-forward-command-controller
+ros-jazzy-position-controllers
+ros-jazzy-velocity-controllers
+ros-jazzy-effort-controllers
+ros-jazzy-xacro
+
+# --- Intel RealSense ---------------------------------------------------------
+ros-jazzy-librealsense2-tools
+ros-jazzy-realsense2-camera
+ros-jazzy-realsense2-description

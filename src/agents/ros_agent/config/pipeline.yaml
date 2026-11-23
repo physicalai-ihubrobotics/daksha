@@ -1,0 +1,116 @@
+# Real-robot VLM pick-and-place pipeline (ros_agent/pipeline_node.py + real_backend.py).
+# The planner, skills and VLM client are local_daksha_rax/local_pipeline; this file
+# holds what is specific to the REAL robot. Robot frame = URDF `world` (x forward,
+# y left, z up, metres).
+pipeline:
+  enabled: true
+  execute: false               # true = arm aruco_reach's execute switch at startup (default: dry run).
+                               # Switch in the UI, or: ros2 service call /aruco_reach/set_execute std_srvs/srv/SetBool "{data: true}"
+  model: 35b                   # 35b = qwen3.5:35b, 9b, 8b = qwen3-vl:8b, or any vision model in `ollama list`
+  ollama: http://localhost:11434
+  rax_dir: ""                  # empty = local_daksha_rax next to the ros_agent sources
+
+  objects: [apple, orange, banana]   # what the planner/VLM may name on the real table
+  containers: [bowl]
+
+  camera:
+    image_topic: /camera/world/color/image_raw
+    camera_info_topic: /camera/world/color/camera_info
+    # Aligned depth makes 3-D positions much better. Needs depth + align_depth enabled for
+    # the world camera in camera_launch/config/cameras.yaml (off by default there). Without
+    # it, positions come from the camera ray hitting a plane plane_offset_m above the table.
+    depth_topic: ""            # e.g. /camera/world/aligned_depth_to_color/image_raw
+
+  # World camera pose, from aruco_hand_eye (Solve & Save in its calibration UI).
+  # World camera pose, PER ARM: one camera calibration cannot serve both arms because each arm's
+  # kinematics are off differently (2026-11-15: the left-hand solve put boxes ~10 cm off for the
+  # right arm). world_calibration = the operator / IK view and right-arm picks;
+  # left-arm picks are remapped with world_calibration_left.
+  world_calibration: eye_to_hand_world_right.yaml
+  world_calibration_left: eye_to_hand_world_left.yaml
+  max_calib_t_rms_mm: 10.0     # worse calibrations need "Use anyway" in the UI
+  max_calib_r_rms_deg: 2.0
+
+  # Table geometry. table_z MUST be the real table: leave null and use "Measure table"
+  # (an ArUco marker flat on the table), or write the measured value here.
+  scene:
+    table_z: 0.888             # robot-frame z of the table top (m). Measured 2026-11-15 with the 80 mm
+                               # ArUco + eye_to_hand_world_left.yaml; press "Measure table" if the table moves
+    plane_offset_m: 0.03       # no-depth mode: objects are assumed this high above the table
+    grasp_dz: 0.014            # TCP height above the table when grasping
+    pregrasp_dz: 0.13          # approach height above the grasp
+    release_dz: 0.17           # TCP height above the table when releasing into a container
+    # Daksha's narrow wrist cannot point straight down with any joint margin (checked over the
+    # whole table front), so grasps / places approach DOWN AND 30 deg FORWARD (TCP x axis).
+    grasp_approach: [0.5, 0.0, -0.866]
+    grasp_tolerance_deg: 20
+  # If a move is unreachable with the requested hand angle (e.g. close to the body the forward
+  # tilt folds the wrist), try angles up to this far away from it (15 and 30 deg rings).
+  approach_search_deg: 30
+    # Optional real-table overrides of the sim defaults (robot frame, m):
+    # clear_pose: {left: [0.12, 0.46, 1.12], right: [0.12, -0.46, 1.12]}
+    # handover_pose: {left: [0.36, 0.18, 1.10], right: [0.36, -0.18, 1.10]}
+    # reach: {x: [0.22, 0.42], y: 0.37}
+  table_marker: {type: marker, dictionary: DICT_4X4_50, marker_id: 0, marker_length: 0.080}
+  table_marker_thickness_m: 0.0
+
+  workspace:                   # every TCP target must be inside this box
+    x: [0.10, 0.85]
+    y: [-0.70, 0.70]
+    z_max: 1.70
+    min_clearance_m: 0.005     # never below table_z + this
+
+  # Motion is done by aruco_hand_eye's aruco_reach (the only /joint_cmd sender) through
+  # its ROS 2 actions; it also owns the execute switch, IK, collision check and stops.
+  motion_server: /aruco_reach
+  motion:
+    max_tcp_speed: 0.03        # m/s requested per move: 3 cm/s default (aruco_reach caps it at its own limit)
+    max_joint_speed: 0.3       # rad/s requested per move: 0.3 rad/s default (capped likewise)
+
+  # Ready (pre-grasp) poses: hand already tilted 30 deg from straight down, about 18 cm above
+  # the table in front of each arm. Reached from home within aruco_reach's 1.5 rad per-move
+  # limit (1.32 / 1.31 rad), self-collision free, >= 0.23 rad from every joint limit; from
+  # there the box approach and grasp descent are 0.4-0.5 rad moves. Used automatically when a
+  # move needs the hand to turn more than ready_trigger_deg.
+  ready_trigger_deg: 45
+  ready_joints:
+    right: [0.9606, -0.9678, 0.9650, 1.7636, 0.6070, -0.0001, -1.3031]
+    left:  [-0.8798, -0.9243, 0.8362, -1.7474, -0.6894, 0.1632, 1.3359]
+
+  # Home = gen2/gen2/HomeMoveService.py DEFAULT_HOME_POSITION, used by aruco_reach's
+  # MoveJoints named "home".
+
+  # Wrist cameras in pick / place (both arms' eye-in-hand cameras + aligned depth):
+  #   the grasp check after lifting (is the object between the fingers?) always runs;
+  #   wrist_refine = move the hand over where the WRIST camera sees the object before the grasp.
+  # OFF until the wrist cameras are recalibrated: measured 2026-11-15, the right eye-in-hand
+  # calibration puts the camera 13 cm from where marker 23 on its housing really is (the arm's
+  # kinematics disagree with the URDF by 2-5 cm / 5-20 deg depending on pose).
+  wrist_refine: false
+
+  # How the hand takes an object (also daksha_pick_up(style=...)):
+  #   side   = from the side: hand turned inward and tipped down (side_grasp_candidates), fingers
+  #            close left/right, at the object's mid-height (min 5 cm above the table)
+  #   top    = straight down (the wrist often cannot: the approach search then tilts up to 30 deg)
+  #   tilted = 30 deg forward from vertical (grasp_approach above)
+  grasp_style: side
+  side_grasp_standoff_m: 0.10    # start this far back along the approach, then slide in
+  side_grasp_reach_m: 0.02       # TCP (= fingertip end) this far past the object centre
+  side_grasp_start_height_m: 0.10  # start the side approach this high (above anything the object stands on);
+                                   # the gripper camera then steers the hand onto the object
+  # [inward yaw deg, down pitch deg] tried in order (mirrored for the left arm); IK-reachable ones
+  side_grasp_candidates: [[15, 20], [30, 20], [15, 40], [30, 40], [45, 20], [0, 20]]
+  # revised plans the agent may make per task after a failure (also ROS param max_replans,
+  # and the "Max replans" control on the page)
+  max_replans: 2
+  # motor temperatures (/<Arm>System/motor_status): warning popup + chat at warn, motion refused at stop
+  motor_temp_warn_c: 80.0
+  motor_temp_stop_c: 90.0
+  # safety alerts (popups). ignore_warnings: true = alerts are only SHOWN, they never refuse or stop motion
+  # (operator's choice). The over-temperature stop (motor_temp_stop_c) and the STOP button still work.
+  # A motor fault always blocks only its own arm when ignore_warnings is false.
+  safety:
+    ignore_warnings: true
+  # use the world calibration even when it is over the accuracy limit (max_calib_*), like "Use anyway"
+  # in the UI but permanent (the right-arm calibration is 11.7 mm / 6.1 deg; picks still worked with it)
+  allow_inaccurate_calibration: true

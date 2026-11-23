@@ -1,0 +1,12 @@
+{
+  "dataset_results": [],
+  "episodes": [
+    {
+      "classification": "KEEP",
+      "episode_index": 0,
+      "results": [],
+      "score": 1.0
+    }
+  ],
+  "total_episodes": 1
+}

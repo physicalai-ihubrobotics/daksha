@@ -1,0 +1,533 @@
+{
+  "dataset_results": [],
+  "episodes": [
+    {
+      "classification": "KEEP",
+      "episode_index": 0,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            6,
+            91
+          ],
+          "message": "Detected 6 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 1,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            27,
+            28
+          ],
+          "message": "Detected 1 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 2,
+      "results": [],
+      "score": 1.0
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 3,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            2,
+            50
+          ],
+          "message": "Detected 8 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 4,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            3,
+            61
+          ],
+          "message": "Detected 7 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 5,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            13,
+            96
+          ],
+          "message": "Detected 15 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 6,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            2,
+            52
+          ],
+          "message": "Detected 8 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 7,
+      "results": [],
+      "score": 1.0
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 8,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            6,
+            78
+          ],
+          "message": "Detected 16 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 9,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            17,
+            82
+          ],
+          "message": "Detected 11 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 10,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            7,
+            42
+          ],
+          "message": "Detected 4 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 11,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            11,
+            51
+          ],
+          "message": "Detected 9 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 12,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            21,
+            70
+          ],
+          "message": "Detected 3 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 13,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            6,
+            65
+          ],
+          "message": "Detected 11 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 14,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            2,
+            99
+          ],
+          "message": "Detected 30 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 15,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            12,
+            21
+          ],
+          "message": "Detected 2 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 16,
+      "results": [],
+      "score": 1.0
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 17,
+      "results": [
+        {
+          "check": "image_quality",
+          "frame_range": null,
+          "message": "[observation.images.wrist_left] 1/11 sampled frames (9.09%) failed image-quality thresholds.",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 18,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            16,
+            73
+          ],
+          "message": "Detected 15 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 19,
+      "results": [],
+      "score": 1.0
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 20,
+      "results": [],
+      "score": 1.0
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 21,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            2,
+            85
+          ],
+          "message": "Detected 58 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 22,
+      "results": [],
+      "score": 1.0
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 23,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            7,
+            82
+          ],
+          "message": "Detected 38 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 24,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            10,
+            32
+          ],
+          "message": "Detected 9 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 25,
+      "results": [],
+      "score": 1.0
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 26,
+      "results": [],
+      "score": 1.0
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 27,
+      "results": [
+        {
+          "check": "image_quality",
+          "frame_range": null,
+          "message": "[observation.images.wrist_right] 1/11 sampled frames (9.09%) failed image-quality thresholds.",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 28,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            2,
+            77
+          ],
+          "message": "Detected 31 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 29,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            16,
+            17
+          ],
+          "message": "Detected 1 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 30,
+      "results": [],
+      "score": 1.0
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 31,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            7,
+            84
+          ],
+          "message": "Detected 23 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 32,
+      "results": [],
+      "score": 1.0
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 33,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            2,
+            74
+          ],
+          "message": "Detected 57 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 34,
+      "results": [],
+      "score": 1.0
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 35,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            6,
+            32
+          ],
+          "message": "Detected 20 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 36,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            6,
+            84
+          ],
+          "message": "Detected 14 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 37,
+      "results": [
+        {
+          "check": "image_quality",
+          "frame_range": null,
+          "message": "[observation.images.wrist_right] 1/11 sampled frames (9.09%) failed image-quality thresholds.",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 38,
+      "results": [
+        {
+          "check": "image_quality",
+          "frame_range": null,
+          "message": "[observation.images.wrist_left] 1/11 sampled frames (9.09%) failed image-quality thresholds.",
+          "severity": "SOFT"
+        },
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            5,
+            18
+          ],
+          "message": "Detected 3 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.8
+    },
+    {
+      "classification": "KEEP",
+      "episode_index": 39,
+      "results": [
+        {
+          "check": "action_smoothness",
+          "frame_range": [
+            11,
+            76
+          ],
+          "message": "Detected 29 unusually large second-difference action transition(s).",
+          "severity": "SOFT"
+        }
+      ],
+      "score": 0.9
+    }
+  ],
+  "total_episodes": 40
+}
