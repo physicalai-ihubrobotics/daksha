@@ -13,7 +13,7 @@
   <a href="https://ubuntu.com/"><img src="https://img.shields.io/badge/Ubuntu-22.04%20LTS-E95420?style=for-the-badge&logo=ubuntu&logoColor=white" alt="Ubuntu"/></a>
   <a href="#controllers-topics-and-services"><img src="https://img.shields.io/badge/Control%20Loop-200%20Hz%20Real--Time-success?style=for-the-badge" alt="200Hz"/></a>
   <a href="#can-setup"><img src="https://img.shields.io/badge/Actuation-MIT--Mode%20CAN-blue?style=for-the-badge" alt="CAN"/></a>
-  <a href="#data-collection-and-replay"><img src="https://img.shields.io/badge/AI%20Engine-LeRobot%20%2F%20VLA%20Ready-purple?style=for-the-badge" alt="AI Ready"/></a>
+  <a href="#data-collection-and-replay"><img src="https://img.shields.io/badge/AI%20Engine-Physical%20AI%20%2F%20VLA%20Ready-purple?style=for-the-badge" alt="AI Ready"/></a>
   <a href="#license"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge" alt="License"/></a>
 </p>
 
@@ -77,7 +77,7 @@
         <li><b>Real-Time Gravity Compensation</b>: Dynamic model-based torque feed-forward computation using Pinocchio / Placo dynamics.</li>
         <li><b>Zero-G Hand Guiding (Teach Mode)</b>: Ultra-low impedance free-drive for intuitive demonstration learning.</li>
         <li><b>Multi-Modal Teleoperation</b>: Hardware leader arms (CAN/Serial/Wi-Fi) and Meta Quest VR tracking via ROS-TCP-Endpoint.</li>
-        <li><b>Physical AI Pipeline</b>: Integrated Parquet + synchronized MP4 dataset collection compatible with Hugging Face LeRobot and OpenVLA.</li>
+        <li><b>Physical AI Pipeline</b>: Integrated Parquet + synchronized MP4 dataset collection for imitation learning and Vision-Language-Action (VLA) models.</li>
         <li><b>3D WebGL Digital Twin</b>: Operator telemetry dashboard, visual joint jogging, and camera feeds running directly in modern web browsers.</li>
       </ul>
     </td>
