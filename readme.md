@@ -2,7 +2,7 @@
   <img src="docs/assets/ihub_logo.png" alt="iHub Robotics Logo" width="360"/>
 </p>
 
-<h1 align="center">🦾 Daksha: Enterprise Bimanual Humanoid Robot</h1>
+<h1 align="center">Daksha: Enterprise Bimanual Humanoid Robot</h1>
 
 <p align="center">
   <strong>High-Performance ROS 2 Dual-Arm Manipulation, Compliant MIT-Mode Control, VR Teleoperation & Physical AI Data Engine</strong>
@@ -14,7 +14,7 @@
   <a href="#controllers-topics-and-services"><img src="https://img.shields.io/badge/Control%20Loop-200%20Hz%20Real--Time-success?style=for-the-badge" alt="200Hz"/></a>
   <a href="#can-setup"><img src="https://img.shields.io/badge/Actuation-MIT--Mode%20CAN-blue?style=for-the-badge" alt="CAN"/></a>
   <a href="#data-collection-and-replay"><img src="https://img.shields.io/badge/AI%20Engine-Physical%20AI%20%2F%20VLA%20Ready-purple?style=for-the-badge" alt="AI Ready"/></a>
-  <a href="#license"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge" alt="License"/></a>
+  <a href="#license--corporate-identity"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge" alt="License"/></a>
 </p>
 
 <p align="center">
@@ -23,12 +23,12 @@
 
 ---
 
-## 📑 Table of Contents
+## Table of Contents
 
-- [Overview & Visual Showcase](#-overview--visual-showcase)
-- [Key Features](#-key-features)
-- [System Architecture](#-system-architecture)
-- [Hardware & Software Specifications](#-hardware--software-specifications)
+- [Overview & Visual Showcase](#overview--visual-showcase)
+- [Key Features](#key-features)
+- [System Architecture](#system-architecture)
+- [Hardware & Software Specifications](#hardware--software-specifications)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Building](#building)
@@ -50,7 +50,7 @@
   - [Demonstration Recording & Replay](#recording--replay)
   - [Teleop Multiplexer & Safety](#teleop-multiplexer-safety)
   - [Policy Inference Bridge (VLA)](#policy-inference-bridge)
-- [Web Consoles & Operator Dashboard](#-web-consoles--operator-dashboard)
+- [Web Consoles & Operator Dashboard](#web-consoles--operator-dashboard)
 - [Running as a Systemd Service](#running-as-a-systemd-service)
 - [Repository Layout](#repository-layout)
 - [Troubleshooting Matrix](#troubleshooting-matrix)
@@ -58,7 +58,7 @@
 
 ---
 
-## 🌟 Overview & Visual Showcase
+## Overview & Visual Showcase
 
 **Daksha** is an enterprise-grade bimanual humanoid robot developed by **iHub Robotics**. Engineered for next-generation physical artificial intelligence and dexterous manipulation, Daksha integrates dual 7-DoF arms, high-torque CAN actuators with real-time compliant impedance control, stereoscopic vision, multi-modal teleoperation (leader-follower & VR), and an autonomous dataset engine for Vision-Language-Action (VLA) imitation learning.
 
@@ -70,7 +70,7 @@
       <em><b>Daksha in Action</b>: Compliant Bimanual Kinematics & Multi-Pose Articulation</em>
     </td>
     <td width="65%" valign="top">
-      <h3>🚀 Engineering Capabilities at a Glance</h3>
+      <h3>Engineering Capabilities & System Features</h3>
       <ul>
         <li><b>14-DoF Dual Bimanual Arms</b>: 7-DoF left and right arms with single-finger grippers or multi-articulated hands.</li>
         <li><b>Compliant MIT-Mode Actuation</b>: 200 Hz real-time closed-loop position, velocity, and feed-forward torque control.</li>
@@ -88,7 +88,7 @@
 
 ---
 
-## ⚡ Key Features
+## Key Features
 
 | Capability | Technical Description | Operational Benefit |
 | :--- | :--- | :--- |
@@ -100,38 +100,38 @@
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 Daksha's software architecture provides seamless communication from low-level CAN bus registers up to cloud neural policies:
 
 ```mermaid
 graph TD
-    subgraph Presentation_Layer["🌐 Presentation & Operator Layer"]
-        UI_3D["🖥️ 3D Digital Twin WebGL Console<br/>(:7070 - Flask & Three.js)"]
-        UI_DATA["📊 Data Collection & Replay HUD<br/>(:8888 - Canvas Low-Latency)"]
-        UI_AUTO["⚙️ Bringup & Automation Panel<br/>(:8100 - Service Manager)"]
-        VR_NODE["🥽 Meta Quest VR Interface<br/>(ROS-TCP-Endpoint & Unity)"]
+    subgraph Presentation_Layer["Presentation & Operator Layer"]
+        UI_3D["3D Digital Twin WebGL Console<br/>(:7070 - Flask & Three.js)"]
+        UI_DATA["Data Collection & Replay HUD<br/>(:8888 - Canvas Low-Latency)"]
+        UI_AUTO["Bringup & Process Automation<br/>(:8100 - Service Manager)"]
+        VR_NODE["Meta Quest VR Interface<br/>(ROS-TCP-Endpoint & Unity)"]
     end
 
-    subgraph Intelligence_Layer["🧠 Autonomy & Physical AI Layer"]
-        VLA["🤖 VLA Policy Inference Bridge<br/>(Median Filter & Joint Predictor)"]
-        REC["⏺️ High-Speed Recorder<br/>(Parquet Data + Chunked MP4)"]
-        REP["🔄 Trajectory Replay Engine<br/>(Synchronized Playback)"]
-        MUX["🛡️ Teleop Multiplexer<br/>(S-Curve Alignment & Fall Protection)"]
+    subgraph Intelligence_Layer["Autonomy & Physical AI Layer"]
+        VLA["VLA Policy Inference Bridge<br/>(Median Filter & Joint Predictor)"]
+        REC["High-Speed Topic Recorder<br/>(Parquet Data + Chunked MP4)"]
+        REP["Trajectory Replay Engine<br/>(Synchronized Playback)"]
+        MUX["Teleop Safety Multiplexer<br/>(S-Curve Alignment & Fall Protection)"]
     end
 
-    subgraph Control_Layer["⚡ ROS 2 Control & Dynamics Layer (200 Hz)"]
-        CM["🎛️ ros2_control Controller Manager"]
-        MIT_CTRL["🦾 PosVelEffController (MIT-Mode)<br/>Left & Right Arm Controllers"]
-        GRAV["⚖️ Gravity Torque Compensator<br/>(Pinocchio / Placo Dynamics)"]
-        WDOG["🐕 Arm Recovery Watchdog<br/>(Auto Motor Fault Clearer)"]
+    subgraph Control_Layer["ROS 2 Control & Dynamics Layer (200 Hz)"]
+        CM["ros2_control Controller Manager"]
+        MIT_CTRL["PosVelEffController (MIT-Mode)<br/>Left & Right Arm Controllers"]
+        GRAV["Gravity Torque Compensator<br/>(Pinocchio / Placo Dynamics)"]
+        WDOG["Arm Recovery Watchdog<br/>(Fault Monitor & Clearer)"]
     end
 
-    subgraph Hardware_Layer["🔌 Hardware & Bus Layer"]
-        BRIDGE["⚡ C++ vcan_bridge_node<br/>(CANalyst-II Dual-Channel Bridge)"]
-        CAN_BUS["🚌 Virtual CAN Buses (vcan0, vcan1) @ 1 Mbps"]
-        ACTUATORS["🦾 14x High-Torque CAN Actuators + 2x Grippers"]
-        CAMS["📷 Dual Wrist RealSense + ZED Binocular Vision"]
+    subgraph Hardware_Layer["Hardware & Bus Layer"]
+        BRIDGE["C++ vcan_bridge_node<br/>(CANalyst-II Dual-Channel Bridge)"]
+        CAN_BUS["Virtual CAN Buses (vcan0, vcan1) @ 1 Mbps"]
+        ACTUATORS["14x Brushless CAN Actuators + 2x Grippers"]
+        CAMS["Dual Wrist RealSense + ZED Binocular Vision"]
     end
 
     %% Flow Connections
@@ -169,7 +169,7 @@ stateDiagram-v2
 
 ---
 
-## 📊 Hardware & Software Specifications
+## Hardware & Software Specifications
 
 | Subsystem | Specification | Technical Details |
 | :--- | :--- | :--- |
@@ -613,7 +613,7 @@ The policy server itself lives outside this repository. The validation UI expect
 
 ---
 
-## 🌐 Web Consoles & Operator Dashboard
+## Web Consoles & Operator Dashboard
 
 Access Daksha's unified web platform directly from any web browser on your network:
 
@@ -732,5 +732,5 @@ daksha/
 
 This project is licensed under the **Apache License 2.0** — see [src/gen2/LICENSE](src/gen2/LICENSE) for details.
 
-Developed with ❤️ by the robotics team at **iHub Robotics**.  
+Developed and maintained by the Robotics Engineering Team at **iHub Robotics**.  
 *For industrial deployments, commercial inquiries, or academic research collaborations, please visit or reach out to the iHub Robotics team.*
